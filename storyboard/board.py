@@ -15,6 +15,10 @@ from pathlib import Path
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 SHOT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")  # shot ids become file and folder names (frames, export)
 KINDS = ("story", "music")
+LANES = ("A", "B", "C", "D", "E")   # A dialogue, B character in a moving world, C cinematic, D photo, E music video
+MOTIONS = ("dialogue", "ambient", "action", "music")
+WORKFLOW_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+VOICE_ID_RE = re.compile(r"^[A-Za-z0-9]{1,64}$")
 FRAME_STYLES = ("sketch", "photo")
 STATUSES = ["draft", "frames", "approved", "rendered", "picked"]
 HISTORY_KEEP = 100
@@ -84,6 +88,13 @@ def validate(board):
     for c in board.get("characters") or []:
         if not isinstance(c, dict) or not isinstance(c.get("id"), str):
             raise ValueError("characters need string ids")
+        for k in ("desc", "block"):
+            if k in c and not isinstance(c[k], str):
+                raise ValueError(f"character {c['id']}: {k} must be text")
+        if c.get("voice_id") and not (isinstance(c["voice_id"], str) and VOICE_ID_RE.match(c["voice_id"])):
+            raise ValueError(f"character {c['id']}: voice_id must be an ElevenLabs voice id (letters and digits)")
+        if c.get("pack") and not (isinstance(c["pack"], str) and NAME_RE.match(c["pack"])):
+            raise ValueError(f"character {c['id']}: pack must be a pack folder name (lowercase, digits, - _)")
     seen = set()
     for sh in board["shots"]:
         sid = sh.get("id") if isinstance(sh, dict) else None
@@ -99,10 +110,36 @@ def validate(board):
         for k in ("start_frame", "end_frame", "audio", "pick"):
             if k in sh and not isinstance(sh[k], str):
                 raise ValueError(f"shot {sid}: {k} must be a path string")
+        _check_production_fields(sh, sid)
         takes = sh.get("takes", [])
         if not (isinstance(takes, list) and all(isinstance(t, dict) and isinstance(t.get("path"), str) for t in takes)):
             raise ValueError(f"shot {sid}: takes must be a list of {{path, label}}")
     return board
+
+
+def shot_motion(shot):
+    """The shot's motion profile: its `motion` field, else `dialogue` for lane A and `ambient` otherwise."""
+    return shot.get("motion") or ("dialogue" if shot.get("lane", "A") == "A" else "ambient")
+
+
+def _check_production_fields(sh, sid):
+    if "lane" in sh and sh["lane"] not in LANES:
+        raise ValueError(f"shot {sid}: lane must be one of {LANES}")
+    if "motion" in sh and sh["motion"] not in MOTIONS:
+        raise ValueError(f"shot {sid}: motion must be one of {MOTIONS}")
+    if "workflow" in sh and not (isinstance(sh["workflow"], str) and WORKFLOW_RE.match(sh["workflow"])):
+        raise ValueError(f"shot {sid}: workflow must be a workflow name (lowercase letters, digits, - . _)")
+    if "reference_video" in sh and not isinstance(sh["reference_video"], str):
+        raise ValueError(f"shot {sid}: reference_video must be a path string")
+    if "landing_pose" in sh and not isinstance(sh["landing_pose"], bool):
+        raise ValueError(f"shot {sid}: landing_pose must be true or false")
+    beats = sh.get("beats", [])
+    if not isinstance(beats, list):
+        raise ValueError(f"shot {sid}: beats must be a list")
+    for b in beats:
+        if not (isinstance(b, dict) and _num(b.get("t"), 0, 3600) and isinstance(b.get("action", ""), str)
+                and isinstance(b.get("impact", False), bool)):
+            raise ValueError(f"shot {sid}: each beat is {{t: seconds, action: text, impact: true/false}}")
 
 
 def version_of(raw):
