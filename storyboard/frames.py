@@ -20,28 +20,44 @@ NO_TEXT = " No words, no letters, no labels, no captions."
 ZIMAGE_MODELS = {"unet": "z_image_turbo_bf16.safetensors", "clip": "qwen_3_4b.safetensors", "vae": "ae.safetensors"}
 
 
+def _unname(text, board):
+    for c in board.get("characters", []):
+        short = (c.get("desc") or "").split(",")[0].strip() or "a person"
+        for n in {c["id"], c["id"].capitalize(), c["id"].lower()}:
+            text = re.sub(rf"\b{re.escape(n)}'s\b", short + "'s", text)
+            text = re.sub(rf"\b{re.escape(n)}\b", short, text)
+    return text
+
+
 def frame_prompt(board, shot, style):
-    """Image prompt for a shot.
+    """Image prompt for a shot's start frame.
 
     Names, ids and lens/move words are kept out on purpose: image models draw them as text (a "KADE" title, "Push in
-    24mm" notes). Characters appear as their description, framing as shot size + angle. A shot's own
-    start_frame_prompt wins over all of this.
+    24mm" notes). Characters appear as their description, framing as shot size + angle. A start frame is one moment:
+    when the shot has beats it shows the first beat (an action text like "stands, then drops" otherwise gets drawn as
+    two figures), with the number of people stated. A shot's own start_frame_prompt wins over all of this.
     """
     if shot.get("start_frame_prompt"):
         base = shot["start_frame_prompt"]
     else:
-        action = shot.get("action") or ""
-        for c in board.get("characters", []):
-            desc = c.get("desc") or ""
-            short = desc.split(",")[0].strip() or "a person"
-            for n in {c["id"], c["id"].capitalize(), c["id"].lower()}:
-                action = re.sub(rf"\b{re.escape(n)}'s\b", short + "'s", action)
-                action = re.sub(rf"\b{re.escape(n)}\b", short, action)
-            if c["id"] in shot.get("characters", []) and desc and short != desc:
-                action += f" ({short}: {desc})"
+        ids = shot.get("characters", [])
+        chars = [c for c in board.get("characters", []) if c["id"] in ids]
+        people = "; ".join(f"{(c.get('desc') or '').split(',')[0].strip() or 'a person'}: {c.get('desc')}"
+                           for c in chars if c.get("desc") and "," in c["desc"])
         cam = shot.get("cam") or {}
         framing = " ".join(x for x in (cam.get("size"), cam.get("angle") and cam["angle"].lower()) if x)
-        base = (f"{framing} view. " if framing else "") + action
+        beats = shot.get("beats") or []
+        if beats:
+            where = shot.get("location") or ""
+            count = {0: "No people.", 1: "Exactly one person in the frame."}.get(len(chars), f"Exactly {len(chars)} people in the frame.")
+            moment = _unname(beats[0].get("action", ""), board)
+            # the opening of the action text, cut before the sequence ("..., then suddenly drops"): one moment only
+            setting = re.split(r",? (?:then|and then|before|until)\b", (shot.get("action") or "").split(".")[0])[0]
+            setting = _unname(setting, board)
+            base = (f"{framing} view. " if framing else "") + f"A single moment: {moment}. Setting: {setting}" +                    (f" ({where.lower()})" if where else "") + f". {count}" + (f" ({people})" if people else "")
+        else:
+            action = _unname(shot.get("action") or "", board)
+            base = (f"{framing} view. " if framing else "") + action + (f" ({people})" if people else "")
     if style == "sketch":
         return SKETCH + base + NO_TEXT
     return f"{base} {board.get('look') or ''}".strip()
