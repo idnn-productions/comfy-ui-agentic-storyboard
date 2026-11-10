@@ -3,13 +3,16 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "comfy-storyboard"
+name = "comfy-ui-agentic-storyboard"
 version = "0.1.0"
 description = "A visual storyboard for AI video: drag shots around, play an animatic, let an agent draft and revise, generate frames with ComfyUI."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/idnn-productions/comfy-ui-agentic-storyboard"
 
 [project.scripts]
 storyboard = "storyboard.cli:main"
