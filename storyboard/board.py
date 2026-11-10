@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+SHOT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")  # shot ids become file and folder names (frames, export)
+KINDS = ("story", "music")
+FRAME_STYLES = ("sketch", "photo")
 STATUSES = ["draft", "frames", "approved", "rendered", "picked"]
 HISTORY_KEEP = 100
 TRASH = "_trash"
@@ -51,6 +54,57 @@ def valid_name(name):
     return bool(NAME_RE.match(name or ""))
 
 
+def _num(v, lo=None, hi=None):
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return False
+    return (lo is None or v >= lo) and (hi is None or v <= hi)
+
+
+def validate(board):
+    """Raise ValueError unless the board is well formed. Every save goes through this (page and agent alike):
+    shot ids become file and folder names, and board values end up in the page."""
+    if not isinstance(board, dict) or not isinstance(board.get("shots"), list):
+        raise ValueError("board needs a shots list")
+    for k in ("width", "height"):
+        if k in board and not (_num(board[k], 16, 8192) and float(board[k]).is_integer()):
+            raise ValueError(f"{k} must be a whole number of pixels (16-8192)")
+    if "fps" in board and not _num(board["fps"], 1, 240):
+        raise ValueError("fps must be a number")
+    if board.get("kind", "story") not in KINDS:
+        raise ValueError(f"kind must be one of {KINDS}")
+    if board.get("frame_style", "sketch") not in FRAME_STYLES:
+        raise ValueError(f"frame_style must be one of {FRAME_STYLES}")
+    audio = board.get("audio")
+    if audio is not None:
+        if not isinstance(audio, dict) or not isinstance(audio.get("file", ""), str):
+            raise ValueError("audio must be {file, offset, bpm, first_beat}")
+        for k in ("offset", "bpm", "first_beat"):
+            if k in audio and not _num(audio[k], 0):
+                raise ValueError(f"audio.{k} must be a number >= 0")
+    for c in board.get("characters") or []:
+        if not isinstance(c, dict) or not isinstance(c.get("id"), str):
+            raise ValueError("characters need string ids")
+    seen = set()
+    for sh in board["shots"]:
+        sid = sh.get("id") if isinstance(sh, dict) else None
+        if not isinstance(sid, str) or not SHOT_ID_RE.match(sid):
+            raise ValueError(f"bad shot id {sid!r}: 1-40 letters, digits, - and _")
+        if sid in seen:
+            raise ValueError(f"duplicate shot id {sid}")
+        seen.add(sid)
+        if not _num(sh.get("duration", 0), 0, 3600):
+            raise ValueError(f"shot {sid}: duration must be a number of seconds")
+        if sh.get("status", "draft") not in STATUSES:
+            raise ValueError(f"shot {sid}: status must be one of {STATUSES}")
+        for k in ("start_frame", "end_frame", "audio", "pick"):
+            if k in sh and not isinstance(sh[k], str):
+                raise ValueError(f"shot {sid}: {k} must be a path string")
+        takes = sh.get("takes", [])
+        if not (isinstance(takes, list) and all(isinstance(t, dict) and isinstance(t.get("path"), str) for t in takes)):
+            raise ValueError(f"shot {sid}: takes must be a list of {{path, label}}")
+    return board
+
+
 def version_of(raw):
     return hashlib.sha1(raw).hexdigest()[:16]
 
@@ -59,9 +113,11 @@ def names(cfg):
     return sorted(p.parent.name for p in cfg.boards.glob("*/storyboard.json"))
 
 
-def load(cfg, name):
+def load(cfg, name, check=False):
+    """check=True also validates (use it before acting on shot ids, e.g. frames and export)."""
     raw = cfg.board_file(name).read_bytes()
-    return json.loads(raw.decode("utf-8")), version_of(raw)
+    b = json.loads(raw.decode("utf-8"))
+    return (validate(b) if check else b), version_of(raw)
 
 
 def current_version(cfg, name):
@@ -70,6 +126,7 @@ def current_version(cfg, name):
 
 def save(cfg, name, board):
     """Write atomically; the previous version goes to history/ (last HISTORY_KEEP kept). Returns the new version."""
+    validate(board)
     p = cfg.board_file(name)
     raw = (json.dumps(board, indent=1, ensure_ascii=False) + "\n").encode("utf-8")
     if p.exists():

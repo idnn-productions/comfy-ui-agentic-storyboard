@@ -82,7 +82,7 @@ def cmd_done(cfg, a):
 
 
 def cmd_frames(cfg, a):
-    b, _ = bd.load(cfg, a.name)
+    b, _ = bd.load(cfg, a.name, check=True)
     style = a.style or b.get("frame_style", "sketch")
     want = set(a.shots.split(",")) if a.shots else None
     template = json.loads(Path(a.workflow).read_text(encoding="utf-8")) if a.workflow else None
@@ -100,7 +100,9 @@ def cmd_frames(cfg, a):
         graph = (fr.template_graph(template, prompt, seed, w, h, prefix) if template
                  else fr.zimage_graph(prompt, seed, w, h, prefix, models))
         data, secs = comfy.run_image(graph)
-        out = out_dir / f"{s['id']}_{style}_{time.strftime('%Y%m%d_%H%M%S')}.png"
+        out = (out_dir / f"{s['id']}_{style}_{time.strftime('%Y%m%d_%H%M%S')}.png").resolve()
+        if not out.is_relative_to(out_dir.resolve()):
+            raise ValueError(f"shot id {s['id']!r} would write outside {out_dir}")
         out.write_bytes(data)
         out.with_suffix(".json").write_text(json.dumps({"prompt": prompt, "seed": seed, "size": [w, h],
                                                         "seconds": round(secs, 1)}, indent=1), encoding="utf-8")
@@ -119,8 +121,8 @@ def cmd_frames(cfg, a):
 def cmd_export(cfg, a):
     """One folder per shot: start.png, end.png, prompt.txt, audio.wav (shot audio, or the board track cut to the
     shot's time), shot.json. A neutral hand-off format for whatever renders the video."""
-    b, _ = bd.load(cfg, a.name)
-    dest = Path(a.dest) if a.dest else cfg.board_dir(a.name) / "export"
+    b, _ = bd.load(cfg, a.name, check=True)
+    dest = (Path(a.dest) if a.dest else cfg.board_dir(a.name) / "export").resolve()
     want = set(a.shots.split(",")) if a.shots else None
     track = (b.get("audio") or {}).get("file")
     n = 0
@@ -132,18 +134,24 @@ def cmd_export(cfg, a):
         if not s.get("start_frame"):
             print("skip", s["id"], "(no start frame)")
             continue
-        d = dest / s["id"]
-        d.mkdir(parents=True, exist_ok=True)
+        d = (dest / s["id"]).resolve()
+        if d.parent != dest:
+            raise ValueError(f"shot id {s['id']!r} would write outside {dest}")
         start = cfg.resolve(s["start_frame"])
+        if not start or not start.is_file():
+            print("skip", s["id"], "(start frame missing or outside the root)")
+            continue
+        d.mkdir(parents=True, exist_ok=True)
         shutil.copy2(start, d / "start.png")
-        shutil.copy2(cfg.resolve(s["end_frame"]) if s.get("end_frame") else start, d / "end.png")
+        end = cfg.resolve(s["end_frame"]) if s.get("end_frame") else None
+        shutil.copy2(end if end and end.is_file() else start, d / "end.png")
         (d / "prompt.txt").write_text((s.get("motion_prompt") or s.get("action") or "") + "\n", encoding="utf-8")
-        src = s.get("audio") or track
+        src = cfg.resolve(s.get("audio") or track) if (s.get("audio") or track) else None
         if src:
             if not shutil.which("ffmpeg"):
                 sys.exit("ffmpeg is needed to export audio")
             cut = [] if s.get("audio") else ["-ss", f"{t0:.3f}", "-to", f"{t1:.3f}"]
-            subprocess.run(["ffmpeg", "-v", "error", "-y", *cut, "-i", str(cfg.resolve(src)), "-ar", "48000", "-ac", "2",
+            subprocess.run(["ffmpeg", "-v", "error", "-y", *cut, "-i", str(src), "-ar", "48000", "-ac", "2",
                             str(d / "audio.wav")], check=True)
         meta = {k: s.get(k) for k in ("id", "section", "duration", "dialogue", "speaker", "lyric", "camera",
                                       "characters", "backend", "seeds") if s.get(k) not in (None, "", [])}

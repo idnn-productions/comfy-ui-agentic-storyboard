@@ -221,7 +221,8 @@ let playing = null;
 const $ = id => document.getElementById(id);
 const audio = $("audio"), shotAudio = $("shotAudio");
 const STATUS_COLOR = s => getComputedStyle(document.documentElement).getPropertyValue("--s-" + (s || "draft")).trim() || "#6b6f7a";
-const fileUrl = p => p ? "/file?p=" + encodeURIComponent(p) : "";
+// CSS-safe: encodeURIComponent leaves ' ( ) * as is, which matters inside style="url('...')"
+const fileUrl = p => p ? "/file?p=" + encodeURIComponent(String(p)).replace(/['()*]/g, c => "%" + c.charCodeAt(0).toString(16).toUpperCase()) : "";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const fmt = t => { t = Math.max(0, t); const m = Math.floor(t / 60); return m + ":" + (t - m * 60).toFixed(1).padStart(4, "0"); };
 const H = {"X-Storyboard": "1"};
@@ -234,9 +235,9 @@ async function home() {
   $("bgrid").innerHTML = j.boards.map(b => `
     <div class="bcard" data-n="${esc(b.name)}">
       <div class="thumb" data-open style="${b.thumb ? `background-image:url('${fileUrl(b.thumb)}')` : ""}">${b.thumb ? "" : "no frames yet"}
-        ${b.requests ? `<span class="flags"><span class="rq">${b.requests} REQ</span></span>` : ""}</div>
+        ${b.requests ? `<span class="flags"><span class="rq">${+b.requests || 0} REQ</span></span>` : ""}</div>
       <div class="cbody"><span class="t" data-open>${esc(b.title)}</span>
-        <span class="cline"><span>${esc(b.name)} &middot; ${b.kind} &middot; ${b.shots} shots &middot; ${fmt(b.seconds)}</span><span>${esc(b.updated)}</span></span>
+        <span class="cline"><span>${esc(b.name)} &middot; ${esc(b.kind)} &middot; ${+b.shots || 0} shots &middot; ${fmt(+b.seconds || 0)}</span><span>${esc(b.updated)}</span></span>
         <div class="acts"><button data-open>Open</button><button data-act="rename">Rename</button><button data-act="duplicate">Duplicate</button><button data-del style="margin-left:auto">Delete</button></div>
         <div class="acts hidden" data-form><input placeholder="new_name" style="flex:1;padding:2px 6px"><button data-go>OK</button><button data-cancel>&times;</button></div>
         <span class="err" data-err></span></div></div>`).join("") || `<div class="empty">No boards yet.</div>`;
@@ -317,7 +318,8 @@ async function save() {
     if (r.status === 409) {
       setSave("conflict", "err");
       showBanner("The board changed on disk (probably the agent) after your last load. Your unsaved edit was not written. " +
-        "<button onclick='load(true);hideBanner()'>Load latest</button>");
+        "<button id='loadLatest'>Load latest</button>");
+      $("loadLatest").addEventListener("click", () => { load(true); hideBanner(); });
     } else if (!r.ok) { setSave("error", "err"); showBanner("Save failed: " + esc(j.error)); }
     else { VERSION = j.version; dirty = false; setSave("saved"); }
   } catch (e) { setSave("offline", "err"); showBanner("Server not reachable. Is storyboard serve running?"); }
@@ -593,11 +595,11 @@ function renderBoardPanel() {
     <div class="sect">Board audio track (song or full voice-over; optional)</div>
     <div class="aslot" id="boardAudio">${a.file ? `<audio controls src="${fileUrl(a.file)}"></audio><button id="clrBAudio">&times;</button>`
       : `<span style="flex:1">no track: drop an audio file here or click. Shots can also have their own audio.</span>`}</div>
-    ${a.file ? `<div class="row3"><label>Starts at (s)<input data-a="offset" type="number" step="0.01" value="${+(a.offset || 0)}"></label>
-      <label>BPM<input data-a="bpm" type="number" step="0.1" value="${a.bpm || ""}"></label>
-      <label>First beat (s)<input data-a="first_beat" type="number" step="0.01" value="${a.first_beat || ""}"></label></div>` : ""}
+    ${a.file ? `<div class="row3"><label>Starts at (s)<input data-a="offset" type="number" step="0.01" value="${+(a.offset || 0) || 0}"></label>
+      <label>BPM<input data-a="bpm" type="number" step="0.1" value="${esc(a.bpm || "")}"></label>
+      <label>First beat (s)<input data-a="first_beat" type="number" step="0.01" value="${esc(a.first_beat || "")}"></label></div>` : ""}
     <div class="sect">Board</div>
-    <div class="meta" style="color:var(--dim)">${esc(NAME)} · ${B.width}x${B.height} · rename or duplicate it from <a href="/">All boards</a>.
+    <div class="meta" style="color:var(--dim)">${esc(NAME)} · ${esc(B.width)}x${esc(B.height)} · rename or duplicate it from <a href="/">All boards</a>.
       Hand approved shots to your renderer with <code>storyboard export ${esc(NAME)} --approved</code>.</div>
     ${field(B, "notes", "Board notes", "area", 2)}`;
   ed.querySelectorAll("[data-b]").forEach(el => el.oninput = el.onchange = () => {

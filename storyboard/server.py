@@ -19,6 +19,7 @@ import http.server
 import json
 import mimetypes
 import os
+import secrets
 import time
 import urllib.parse
 import webbrowser
@@ -47,7 +48,7 @@ def make_handler(cfg):
         def log_message(self, *args):
             pass
 
-        def _send(self, code, body, ctype="application/json; charset=utf-8"):
+        def _send(self, code, body, ctype="application/json; charset=utf-8", headers=None):
             if isinstance(body, (dict, list)):
                 body = json.dumps(body, ensure_ascii=False)
             if isinstance(body, str):
@@ -56,6 +57,9 @@ def make_handler(cfg):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            for k, v in (headers or {}).items():
+                self.send_header(k, v)
             self.end_headers()
             self.wfile.write(body)
 
@@ -72,7 +76,13 @@ def make_handler(cfg):
             u = urllib.parse.urlparse(self.path)
             q = urllib.parse.parse_qs(u.query)
             if u.path == "/":
-                return self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
+                # Only the page's own script runs (per-response nonce): a value from a board that slipped past
+                # escaping still cannot execute script. Inline style attributes stay allowed (layout uses them).
+                nonce = secrets.token_urlsafe(16)
+                page = PAGE.read_text(encoding="utf-8").replace("<script>", f'<script nonce="{nonce}">', 1)
+                csp = (f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; img-src 'self'; "
+                       "media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+                return self._send(200, page, "text/html; charset=utf-8", {"Content-Security-Policy": csp})
             if u.path == "/api/server":
                 return self._send(200, {"stale": code_stamp() != started})
             if u.path == "/api/boards":
@@ -150,10 +160,10 @@ def make_handler(cfg):
             body = self._json_body()
             if body.get("version") != bd.current_version(cfg, name):
                 return self._send(409, {"error": "changed on disk", "version": bd.current_version(cfg, name)})
-            b = body.get("board") or {}
-            if not isinstance(b.get("shots"), list) or any(not isinstance(s, dict) or "id" not in s for s in b["shots"]):
-                return self._send(400, {"error": "board needs shots with ids"})
-            return self._send(200, {"version": bd.save(cfg, name, b)})
+            try:
+                return self._send(200, {"version": bd.save(cfg, name, body.get("board"))})
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
 
         def do_POST(self):
             if not self._same_origin():

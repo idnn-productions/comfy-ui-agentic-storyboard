@@ -57,6 +57,24 @@ class BoardTests(Base):
         self.assertIsNone(self.cfg.resolve("../outside.txt"))
         self.assertIsNotNone(self.cfg.resolve("storyboards/x.png"))
 
+    def test_validate_rejects_unsafe_values(self):
+        bd.create(self.cfg, "v")
+        b, _ = bd.load(self.cfg, "v")
+        bad = [
+            {"shots": [{"id": "../../evil", "duration": 1}]},
+            {"shots": [{"id": "a b", "duration": 1}]},
+            {"shots": [{"id": "SH01", "duration": 1}, {"id": "SH01", "duration": 1}]},
+            {"shots": [{"id": "SH01", "duration": "1"}]},
+            {"shots": [], "width": "<img src=x onerror=alert(1)>"},
+            {"shots": [], "kind": "<b>"},
+            {"shots": [], "audio": {"file": "a.wav", "bpm": "<x>"}},
+            {"shots": [{"id": "SH01", "duration": 1, "start_frame": {"x": 1}}]},
+        ]
+        for case in bad:
+            with self.assertRaises(ValueError, msg=case):
+                bd.save(self.cfg, "v", {**b, **case})
+        bd.save(self.cfg, "v", {**b, "shots": [{"id": "SH-01_b", "duration": 2.5, "status": "approved"}]})
+
     def test_requests(self):
         bd.create(self.cfg, "r", request="draft it")
         b, _ = bd.load(self.cfg, "r")
@@ -117,6 +135,23 @@ class ServerTests(Base):
         st, out = self.req("GET", "/api/board?b=demo")
         self.assertEqual(st, 200)
         self.assertEqual(json.loads(out)["board"]["shots"], [])
+
+    def test_page_has_csp_with_nonce(self):
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        c.request("GET", "/")
+        r = c.getresponse()
+        page = r.read().decode()
+        csp = r.getheader("Content-Security-Policy")
+        c.close()
+        nonce = csp.split("'nonce-")[1].split("'")[0]
+        self.assertIn(f'<script nonce="{nonce}">', page)
+        self.assertNotIn("unsafe-eval", csp)
+
+    def test_put_rejects_bad_shot_id(self):
+        h = {"X-Storyboard": "1", "Content-Type": "application/json"}
+        j = json.loads(self.req("GET", "/api/board?b=demo")[1])
+        b = {**j["board"], "shots": [{"id": "../../x", "duration": 1}]}
+        self.assertEqual(self.req("PUT", "/api/board?b=demo", {"version": j["version"], "board": b}, h)[0], 400)
 
     def test_writes_need_header(self):
         st, _ = self.req("POST", "/api/boards", {"action": "delete", "name": "demo"})
