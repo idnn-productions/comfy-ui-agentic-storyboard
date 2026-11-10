@@ -1,0 +1,471 @@
+{
+ "title": "Prison Break",
+ "kind": "story",
+ "fps": 24,
+ "width": 1280,
+ "height": 720,
+ "frame_style": "sketch",
+ "brief": "Generate a storyboard for a man escaping from prison. He unlocks the door because the janitor forgot to take the keys from his cell, then steals a blaster, does a daring escape, falls while jumping over an overturned cart, shoots by accident hitting a guard. Makes it to the launch pad of the prison space colony, and steals a light cruiser.",
+ "look": "Industrial sci-fi prison colony on a barren moon, worn concrete and scuffed steel, sodium and cold fluorescent light, a huge banded gas giant in the sky, shot on 35mm film, natural skin texture, muted steel-blue and orange palette.",
+ "characters": [
+  {
+   "id": "THORBO",
+   "desc": "a man in his mid 30s, buzzed dark hair, stubble, small scar on his chin, faded orange prison jumpsuit with a number patch"
+  },
+  {
+   "id": "WILCO",
+   "desc": "A Blonde alien hunched, grey work overalls, earbuds in, pushing a squeaky cleaning cart"
+  },
+  {
+   "id": "GUARDS",
+   "desc": "prison guards in grey padded armor and dark visored helmets"
+  },
+  {
+   "id": "TECH",
+   "desc": "a young ground-crew technician in yellow coveralls and ear protectors"
+  }
+ ],
+ "notes": "Example board drafted by an agent from the director's notes above. Run `storyboard frames prison_escape` to sketch every shot. Draft 1 (Claude, from the director's notes): played as action-comedy, the escape works by luck as much as skill. Four scenes: Cell block, Armory, The run, Launch pad. ~62 s, 23 shots. Callback: the janitor's key ring ends up on the cruiser's dash.",
+ "shots": [
+  {
+   "id": "SH01",
+   "duration": 4,
+   "section": "Cell block",
+   "location": "PRISON EXTERIOR",
+   "action": "Night. A walled prison complex of domes and concrete blocks on a barren moon; far off, a lit launch pad with a small sleek spacecraft on it.",
+   "cam": {
+    "size": "Establishing",
+    "angle": "Aerial / drone",
+    "lens": "24mm",
+    "move": "Push-in"
+   },
+   "characters": [],
+   "status": "draft",
+   "camera": "Establishing, Aerial / drone, 24mm, Push-in",
+   "motion_prompt": "Night. A walled prison complex of domes and concrete blocks on a barren moon; far off, a lit launch pad with a small sleek spacecraft on it. Camera: Establishing, Aerial / drone, 24mm, Push-in."
+  },
+  {
+   "id": "SH02",
+   "duration": 3,
+   "section": "Cell block",
+   "location": "CELL",
+   "action": "Thorbo lies on a steel bunk staring at the ceiling, corridor light striping him through the bars.",
+   "cam": {
+    "size": "Medium",
+    "angle": "High angle",
+    "lens": "35mm",
+    "move": "Locked off"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Medium, High angle, 35mm, Locked off",
+   "motion_prompt": "Thorbo lies on a steel bunk staring at the ceiling, corridor light striping him through the bars. Camera: Medium, High angle, 35mm, Locked off."
+  },
+  {
+   "id": "SH03",
+   "duration": 3,
+   "section": "Cell block",
+   "location": "CELL BLOCK CORRIDOR",
+   "action": "The janitor mops the corridor outside the cells, nodding to his music, a big key ring clipped to his cart.",
+   "cam": {
+    "size": "Wide",
+    "angle": "Eye level",
+    "lens": "28mm",
+    "move": "Tracking alongside"
+   },
+   "characters": [
+    "WILCO"
+   ],
+   "status": "draft",
+   "camera": "Wide, Eye level, 28mm, Tracking alongside",
+   "motion_prompt": "The janitor mops the corridor outside the cells, nodding to his music, a big key ring clipped to his cart. Camera: Wide, Eye level, 28mm, Tracking alongside."
+  },
+  {
+   "id": "SH04",
+   "duration": 2,
+   "section": "Cell block",
+   "location": "CELL BLOCK CORRIDOR",
+   "action": "The key ring is left hanging in Thorbo's cell door lock as the cart squeaks away out of frame.",
+   "cam": {
+    "size": "Insert",
+    "angle": "Eye level",
+    "lens": "100mm macro",
+    "move": "Locked off"
+   },
+   "characters": [],
+   "status": "draft",
+   "camera": "Insert, Eye level, 100mm macro, Locked off",
+   "motion_prompt": "The key ring is left hanging in Thorbo's cell door lock as the cart squeaks away out of frame. Camera: Insert, Eye level, 100mm macro, Locked off."
+  },
+  {
+   "id": "SH05",
+   "duration": 2,
+   "section": "Cell block",
+   "location": "CELL",
+   "action": "Thorbo's eyes open. He slowly turns his head toward the door.",
+   "cam": {
+    "size": "Close-up",
+    "angle": "Eye level",
+    "lens": "85mm",
+    "move": "Push-in"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Close-up, Eye level, 85mm, Push-in",
+   "motion_prompt": "Thorbo's eyes open. He slowly turns his head toward the door. Camera: Close-up, Eye level, 85mm, Push-in."
+  },
+  {
+   "id": "SH06",
+   "duration": 3.5,
+   "section": "Cell block",
+   "location": "CELL",
+   "action": "Thorbo reaches through the bars, turns the key; the door clunks and slides open a few inches.",
+   "cam": {
+    "size": "Medium close-up",
+    "angle": "Low angle",
+    "lens": "50mm",
+    "move": "Handheld"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Medium close-up, Low angle, 50mm, Handheld",
+   "motion_prompt": "Thorbo reaches through the bars, turns the key; the door clunks and slides open a few inches. Camera: Medium close-up, Low angle, 50mm, Handheld."
+  },
+  {
+   "id": "SH07",
+   "duration": 3,
+   "section": "Armory",
+   "location": "CELL BLOCK CORRIDOR",
+   "action": "Thorbo slips along the corridor wall in his socks, ducking under a security camera dome.",
+   "cam": {
+    "size": "Medium wide",
+    "angle": "Low angle",
+    "lens": "28mm",
+    "move": "Steadicam follow"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Medium wide, Low angle, 28mm, Steadicam follow",
+   "motion_prompt": "Thorbo slips along the corridor wall in his socks, ducking under a security camera dome. Camera: Medium wide, Low angle, 28mm, Steadicam follow."
+  },
+  {
+   "id": "SH08",
+   "duration": 3,
+   "section": "Armory",
+   "location": "GUARD POST",
+   "action": "A guard post: one guard asleep in his chair with boots on the desk, a blaster pistol next to a half-eaten noodle cup.",
+   "cam": {
+    "size": "Medium",
+    "angle": "Eye level",
+    "lens": "35mm",
+    "move": "Locked off"
+   },
+   "characters": [
+    "GUARDS"
+   ],
+   "status": "draft",
+   "camera": "Medium, Eye level, 35mm, Locked off",
+   "motion_prompt": "A guard post: one guard asleep in his chair with boots on the desk, a blaster pistol next to a half-eaten noodle cup. Camera: Medium, Eye level, 35mm, Locked off."
+  },
+  {
+   "id": "SH09",
+   "duration": 2,
+   "section": "Armory",
+   "location": "GUARD POST",
+   "action": "Thorbo's hand slowly lifts the blaster off the desk, past the noodle cup.",
+   "cam": {
+    "size": "Insert",
+    "angle": "High angle",
+    "lens": "50mm",
+    "move": "Locked off"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Insert, High angle, 50mm, Locked off",
+   "motion_prompt": "Thorbo's hand slowly lifts the blaster off the desk, past the noodle cup. Camera: Insert, High angle, 50mm, Locked off."
+  },
+  {
+   "id": "SH10",
+   "duration": 2.5,
+   "section": "Armory",
+   "location": "GUARD POST",
+   "action": "The guard stirs and mumbles without opening his eyes. Thorbo freezes mid-step, blaster in hand.",
+   "cam": {
+    "size": "Two-shot",
+    "angle": "Eye level",
+    "lens": "35mm",
+    "move": "Locked off"
+   },
+   "characters": [
+    "THORBO",
+    "GUARDS"
+   ],
+   "status": "draft",
+   "camera": "Two-shot, Eye level, 35mm, Locked off",
+   "motion_prompt": "The guard stirs and mumbles without opening his eyes. Thorbo freezes mid-step, blaster in hand. Camera: Two-shot, Eye level, 35mm, Locked off.",
+   "dialogue": "Five more minutes...",
+   "speaker": "GUARDS"
+  },
+  {
+   "id": "SH11",
+   "duration": 3,
+   "section": "The run",
+   "location": "SERVICE CORRIDOR",
+   "action": "Alarm. Red strobes flood the corridor; Thorbo sprints toward camera clutching the blaster.",
+   "cam": {
+    "size": "Wide",
+    "angle": "Eye level",
+    "lens": "24mm",
+    "move": "Pull-out",
+    "extra": "camera running backward ahead of him"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Wide, Eye level, 24mm, Pull-out, camera running backward ahead of him",
+   "motion_prompt": "Alarm. Red strobes flood the corridor; Thorbo sprints toward camera clutching the blaster. Camera: Wide, Eye level, 24mm, Pull-out, camera running backward ahead of him."
+  },
+  {
+   "id": "SH12",
+   "duration": 2.5,
+   "section": "The run",
+   "location": "SERVICE CORRIDOR",
+   "action": "A squad of guards pours around the corner behind him, boots pounding.",
+   "cam": {
+    "size": "Wide",
+    "angle": "Low angle",
+    "lens": "24mm",
+    "move": "Handheld"
+   },
+   "characters": [
+    "GUARDS"
+   ],
+   "status": "draft",
+   "camera": "Wide, Low angle, 24mm, Handheld",
+   "motion_prompt": "A squad of guards pours around the corner behind him, boots pounding. Camera: Wide, Low angle, 24mm, Handheld."
+  },
+  {
+   "id": "SH13",
+   "duration": 2,
+   "section": "The run",
+   "location": "LOADING BAY",
+   "action": "Loading bay: an overturned cargo cart blocks the way. Thorbo leaps over it.",
+   "cam": {
+    "size": "Full shot",
+    "angle": "Low angle",
+    "lens": "24mm",
+    "move": "Track right"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Full shot, Low angle, 24mm, Track right",
+   "motion_prompt": "Loading bay: an overturned cargo cart blocks the way. Thorbo leaps over it. Camera: Full shot, Low angle, 24mm, Track right."
+  },
+  {
+   "id": "SH14",
+   "duration": 2.5,
+   "section": "The run",
+   "location": "LOADING BAY",
+   "action": "His foot clips the cart. He crashes down and slides across the floor; the blaster skitters away.",
+   "cam": {
+    "size": "Wide",
+    "angle": "Eye level",
+    "lens": "28mm",
+    "move": "Handheld"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Wide, Eye level, 28mm, Handheld",
+   "motion_prompt": "His foot clips the cart. He crashes down and slides across the floor; the blaster skitters away. Camera: Wide, Eye level, 28mm, Handheld."
+  },
+  {
+   "id": "SH15",
+   "duration": 1.5,
+   "section": "The run",
+   "location": "LOADING BAY",
+   "action": "He grabs the blaster as he scrambles up; it goes off by accident in a bright bolt.",
+   "cam": {
+    "size": "Medium close-up",
+    "angle": "Low angle",
+    "lens": "35mm",
+    "move": "Crash zoom"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Medium close-up, Low angle, 35mm, Crash zoom",
+   "motion_prompt": "He grabs the blaster as he scrambles up; it goes off by accident in a bright bolt. Camera: Medium close-up, Low angle, 35mm, Crash zoom."
+  },
+  {
+   "id": "SH16",
+   "duration": 2,
+   "section": "The run",
+   "location": "LOADING BAY",
+   "action": "Up on a catwalk a guard is hit in the shoulder plate, spins and tumbles behind a stack of crates.",
+   "cam": {
+    "size": "Medium wide",
+    "angle": "Low angle",
+    "lens": "50mm",
+    "move": "Locked off"
+   },
+   "characters": [
+    "GUARDS"
+   ],
+   "status": "draft",
+   "camera": "Medium wide, Low angle, 50mm, Locked off",
+   "motion_prompt": "Up on a catwalk a guard is hit in the shoulder plate, spins and tumbles behind a stack of crates. Camera: Medium wide, Low angle, 50mm, Locked off."
+  },
+  {
+   "id": "SH17",
+   "duration": 2,
+   "section": "The run",
+   "location": "LOADING BAY",
+   "action": "Thorbo stares at the blaster, horrified.",
+   "cam": {
+    "size": "Close-up",
+    "angle": "Eye level",
+    "lens": "50mm",
+    "move": "Handheld"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Close-up, Eye level, 50mm, Handheld",
+   "motion_prompt": "Thorbo stares at the blaster, horrified. Camera: Close-up, Eye level, 50mm, Handheld.",
+   "dialogue": "That was an accident!",
+   "speaker": "THORBO"
+  },
+  {
+   "id": "SH18",
+   "duration": 4,
+   "section": "Launch pad",
+   "location": "LAUNCH PAD",
+   "action": "Thorbo bursts through an airlock onto the launch pad. Dust blows across the pad; the gas giant fills the sky.",
+   "cam": {
+    "size": "Extreme wide",
+    "angle": "Low angle",
+    "lens": "18mm",
+    "move": "Crane up"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Extreme wide, Low angle, 18mm, Crane up",
+   "motion_prompt": "Thorbo bursts through an airlock onto the launch pad. Dust blows across the pad; the gas giant fills the sky. Camera: Extreme wide, Low angle, 18mm, Crane up."
+  },
+  {
+   "id": "SH19",
+   "duration": 3,
+   "section": "Launch pad",
+   "location": "LAUNCH PAD",
+   "action": "Beside a small sleek light cruiser with its ramp down, a technician mid-sandwich sees the blaster, raises his hands and backs away.",
+   "cam": {
+    "size": "Medium",
+    "angle": "Eye level",
+    "lens": "35mm",
+    "move": "Locked off"
+   },
+   "characters": [
+    "TECH",
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Medium, Eye level, 35mm, Locked off",
+   "motion_prompt": "Beside a small sleek light cruiser with its ramp down, a technician mid-sandwich sees the blaster, raises his hands and backs away. Camera: Medium, Eye level, 35mm, Locked off.",
+   "dialogue": "It's all yours.",
+   "speaker": "TECH"
+  },
+  {
+   "id": "SH20",
+   "duration": 3,
+   "section": "Launch pad",
+   "location": "CRUISER COCKPIT",
+   "action": "In the cockpit Thorbo drops into the pilot seat and slaps switches; the console lights up and the engines whine.",
+   "cam": {
+    "size": "Medium close-up",
+    "angle": "Eye level",
+    "lens": "35mm",
+    "move": "Handheld"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Medium close-up, Eye level, 35mm, Handheld",
+   "motion_prompt": "In the cockpit Thorbo drops into the pilot seat and slaps switches; the console lights up and the engines whine. Camera: Medium close-up, Eye level, 35mm, Handheld."
+  },
+  {
+   "id": "SH21",
+   "duration": 3,
+   "section": "Launch pad",
+   "location": "LAUNCH PAD",
+   "action": "Guards spill onto the pad firing up at the cruiser as it lifts off in a blast of dust.",
+   "cam": {
+    "size": "Wide",
+    "angle": "Low angle",
+    "lens": "24mm",
+    "move": "Tilt up"
+   },
+   "characters": [
+    "GUARDS"
+   ],
+   "status": "draft",
+   "camera": "Wide, Low angle, 24mm, Tilt up",
+   "motion_prompt": "Guards spill onto the pad firing up at the cruiser as it lifts off in a blast of dust. Camera: Wide, Low angle, 24mm, Tilt up."
+  },
+  {
+   "id": "SH22",
+   "duration": 4,
+   "section": "Launch pad",
+   "location": "SPACE",
+   "action": "The cruiser streaks up and away from the colony; the prison domes shrink below against the gas giant.",
+   "cam": {
+    "size": "Extreme wide",
+    "angle": "Aerial / drone",
+    "lens": "24mm",
+    "move": "Pull-out"
+   },
+   "characters": [],
+   "status": "draft",
+   "camera": "Extreme wide, Aerial / drone, 24mm, Pull-out",
+   "motion_prompt": "The cruiser streaks up and away from the colony; the prison domes shrink below against the gas giant. Camera: Extreme wide, Aerial / drone, 24mm, Pull-out."
+  },
+  {
+   "id": "SH23",
+   "duration": 3,
+   "section": "Launch pad",
+   "location": "CRUISER COCKPIT",
+   "action": "Thorbo exhales, a small grin. The janitor's key ring dangles from the dashboard, swinging.",
+   "cam": {
+    "size": "Close-up",
+    "angle": "Eye level",
+    "lens": "50mm",
+    "move": "Locked off"
+   },
+   "characters": [
+    "THORBO"
+   ],
+   "status": "draft",
+   "camera": "Close-up, Eye level, 50mm, Locked off",
+   "motion_prompt": "Thorbo exhales, a small grin. The janitor's key ring dangles from the dashboard, swinging. Camera: Close-up, Eye level, 50mm, Locked off."
+  }
+ ]
+}

@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storyboards</title>
+<style>
+:root {
+  --bg: #15161a; --panel: #1d1f25; --card: #23262d; --line: #33363f; --text: #e6e6e9; --dim: #9a9ca5;
+  --accent: #f0b54a; --sel: #f0b54a; --drop: #5ab0ff; --bad: #ff6b6b;
+  --s-draft: #6b6f7a; --s-frames: #5ab0ff; --s-approved: #58c27d; --s-rendered: #b58cff; --s-picked: #f0b54a;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font: 13px/1.4 system-ui, "Segoe UI", sans-serif; }
+button, select, input, textarea { font: inherit; color: var(--text); background: #2a2d35; border: 1px solid var(--line);
+  border-radius: 5px; }
+button { padding: 4px 10px; cursor: pointer; }
+button:hover { border-color: var(--dim); }
+button.primary { background: var(--accent); color: #1a1a1a; border-color: var(--accent); font-weight: 600; }
+button.ghost { background: transparent; }
+a { color: var(--accent); }
+.hidden { display: none !important; }
+header { display: flex; gap: 10px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line);
+  background: var(--panel); flex-wrap: wrap; }
+header h1 { font-size: 15px; margin: 0; }
+header .meta { color: var(--dim); }
+header .spacer { flex: 1; }
+#saveState { min-width: 90px; color: var(--dim); text-align: right; }
+#saveState.dirty { color: var(--accent); }
+#saveState.err { color: var(--bad); }
+.banner { display: none; padding: 6px 14px; background: #4a3512; color: #ffd98a; }
+.banner.show { display: block; }
+
+/* home */
+.home { padding: 18px; max-width: 1400px; margin: 0 auto; }
+.home h2 { font-size: 14px; color: var(--dim); font-weight: 600; margin: 18px 0 10px; }
+.bgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.bcard { background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.bcard .thumb { cursor: pointer; }
+.bcard .cbody { padding: 8px 10px 10px; display: grid; gap: 4px; }
+.bcard .t { font-weight: 600; font-size: 14px; cursor: pointer; }
+.bcard .acts { display: flex; gap: 6px; margin-top: 4px; }
+.bcard .acts button { font-size: 11px; padding: 2px 8px; }
+.newbox { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 10px; }
+.newbox textarea { min-height: 110px; }
+
+/* board */
+.app { display: grid; grid-template-rows: auto auto auto 1fr; grid-template-columns: minmax(0, 1fr); height: 100vh; }
+.brief { display: flex; gap: 10px; align-items: center; padding: 6px 14px; border-bottom: 1px solid var(--line);
+  background: #1a1c21; }
+.brief .txt { flex: 1; min-width: 0; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.brief .txt b { color: var(--text); font-weight: 600; }
+.brief .req { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.tl-wrap { padding: 6px 14px 8px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.tl { position: relative; height: 46px; user-select: none; }
+.tl .sec { position: absolute; top: 0; height: 14px; font-size: 10px; color: var(--dim); border-left: 1px solid var(--line);
+  padding-left: 3px; overflow: hidden; white-space: nowrap; }
+.tl .blk { position: absolute; top: 16px; height: 26px; border-radius: 3px; overflow: hidden; cursor: pointer;
+  font-size: 10px; padding: 2px 3px; white-space: nowrap; color: #111; border: 1px solid #0006; }
+.tl .blk.sel { outline: 2px solid #fff; z-index: 2; }
+.tl .head { position: absolute; top: 12px; bottom: 0; width: 2px; background: #ff5050; pointer-events: none; z-index: 3; }
+.tl-time { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; margin-top: 2px; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 450px; min-height: 0; min-width: 0; }
+@media (max-width: 1100px) { main { grid-template-columns: minmax(0, 1fr) 360px; } }
+.grid-wrap { overflow: auto; padding: 14px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--cw, 220px), 1fr)); gap: 12px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; cursor: pointer;
+  position: relative; border-top: 3px solid var(--s-draft); }
+.card.sel { border-color: var(--sel); box-shadow: 0 0 0 1px var(--sel); }
+.card.dragging { opacity: .35; }
+.card.drop-before::before, .card.drop-after::after { content: ""; position: absolute; top: 0; bottom: 0; width: 4px;
+  background: var(--drop); z-index: 4; }
+.card.drop-before::before { left: -9px; } .card.drop-after::after { right: -9px; }
+.card.playing { box-shadow: 0 0 0 2px #ff5050; }
+.thumb { aspect-ratio: var(--ar, 16/9); background: #111 center/cover no-repeat; position: relative; display: flex;
+  align-items: center; justify-content: center; color: #555; font-size: 11px; padding: 8px; text-align: center; }
+.thumb .endmini { position: absolute; right: 4px; bottom: 4px; width: 28%; aspect-ratio: var(--ar, 16/9);
+  background: #000 center/cover; border: 1px solid #fff8; border-radius: 2px; }
+.thumb.filedrop { outline: 2px dashed var(--drop); outline-offset: -4px; }
+.thumb .badge { position: absolute; left: 4px; top: 4px; background: #000a; color: #fff; padding: 0 5px; border-radius: 3px;
+  font-size: 11px; font-weight: 600; }
+.thumb .flags { position: absolute; right: 4px; top: 4px; display: flex; gap: 3px; }
+.thumb .flags span { background: #000a; color: #fff; padding: 0 5px; border-radius: 3px; font-size: 10px; font-weight: 700; }
+.thumb .flags .rq { background: var(--accent); color: #111; }
+.cbody { padding: 6px 8px 8px; }
+.cline { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; gap: 6px; }
+.cline span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctext { margin-top: 3px; font-size: 12px; max-height: 3.9em; overflow: hidden; }
+.ctext i { color: #e9d7a8; }
+.ctext .cam { color: var(--dim); font-size: 11px; }
+aside { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; display: flex; flex-direction: column; }
+.preview { background: #000; aspect-ratio: var(--ar, 16/9); position: relative; display: flex; align-items: center;
+  justify-content: center; color: #666; flex: none; }
+.preview img, .preview video { width: 100%; height: 100%; object-fit: contain; }
+.preview .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; background: linear-gradient(transparent, #000c);
+  color: #fff; font-size: 13px; }
+.transport { display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); align-items: center; }
+.transport .t { color: var(--dim); margin-left: auto; font-variant-numeric: tabular-nums; }
+.tabs { display: flex; border-bottom: 1px solid var(--line); }
+.tabs button { flex: 1; border: 0; border-radius: 0; background: transparent; padding: 8px; color: var(--dim); }
+.tabs button.on { color: var(--text); box-shadow: inset 0 -2px var(--accent); }
+.editor { padding: 10px; display: grid; gap: 8px; }
+.editor label, .newbox label { display: grid; gap: 3px; color: var(--dim); font-size: 11px; }
+.editor input, .editor textarea, .editor select, .newbox input, .newbox textarea, .newbox select { width: 100%; padding: 5px 7px; }
+.editor textarea, .newbox textarea { resize: vertical; min-height: 54px; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.row4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px; }
+.dur { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.dur input { width: 80px; }
+.dur button { padding: 3px 6px; font-size: 11px; }
+.slots { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.slot { border: 1px dashed var(--line); border-radius: 5px; aspect-ratio: var(--ar, 16/9); background: #111 center/contain no-repeat;
+  display: flex; align-items: end; justify-content: center; color: var(--dim); font-size: 11px; padding: 4px; cursor: pointer; }
+.slot.filedrop, .aslot.filedrop { border-color: var(--drop); }
+.aslot { border: 1px dashed var(--line); border-radius: 5px; padding: 6px; display: flex; gap: 6px; align-items: center; color: var(--dim); }
+.aslot audio { flex: 1; height: 30px; }
+.statusbar { display: flex; gap: 4px; flex-wrap: wrap; }
+.statusbar button { font-size: 11px; padding: 3px 8px; }
+.statusbar button.on { color: #111; font-weight: 700; }
+.request { border-color: var(--accent) !important; }
+.sect { color: var(--text); font-weight: 600; font-size: 12px; margin-top: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+.chars { display: grid; gap: 6px; }
+.charrow { display: grid; grid-template-columns: 90px 1fr 120px 26px; gap: 4px; }
+.charrow input { padding: 4px 6px; }
+.quick { display: flex; gap: 6px; flex-wrap: wrap; }
+.quick button { font-size: 11px; }
+.takes video { width: 100%; border-radius: 4px; margin-top: 4px; }
+.empty { color: var(--dim); padding: 30px; text-align: center; }
+.help { color: var(--dim); font-size: 11px; padding: 0 10px 12px; }
+.err { color: var(--bad); }
+kbd { background: #2a2d35; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; font-size: 10px; }
+</style>
+</head>
+<body>
+<!-- ================= HOME ================= -->
+<div id="homeView" class="hidden">
+  <header><h1>Storyboards</h1><span class="spacer"></span><span class="meta">comfy-storyboard</span></header>
+  <div class="home">
+    <div class="newbox">
+      <b>New storyboard</b>
+      <div class="row4">
+        <label>Name (folder, a-z 0-9 - _)<input id="nName" placeholder="prison_escape"></label>
+        <label>Title<input id="nTitle" placeholder="Prison Break on Kessel-9"></label>
+        <label>Kind<select id="nKind"><option value="story">story / drama</option><option value="music">music video</option></select></label>
+        <label>Frame<select id="nSize">
+          <option value="1280x720">16:9 landscape</option><option value="720x1280">9:16 vertical</option>
+          <option value="1280x544">2.39:1 scope</option><option value="1024x1024">1:1 square</option></select></label>
+      </div>
+      <label>Director's notes (what the piece is; the agent turns this into shots)
+        <textarea id="nBrief" placeholder="A man escapes from a prison on a space colony. The janitor forgot the keys in his cell door..."></textarea></label>
+      <div class="quick">
+        <label style="display:flex;gap:6px;align-items:center;color:var(--text)"><input type="checkbox" id="nDraft" checked style="width:auto"> ask the agent to draft the shots from the notes</label>
+        <span class="spacer" style="flex:1"></span>
+        <span id="nErr" class="err"></span>
+        <button class="primary" id="nCreate">Create</button>
+      </div>
+    </div>
+    <h2>All boards</h2>
+    <div class="bgrid" id="bgrid"></div>
+  </div>
+</div>
+
+<!-- ================= BOARD ================= -->
+<div class="app hidden" id="boardView">
+  <header>
+    <a href="/" title="all storyboards">&larr; Boards</a>
+    <h1 id="title">Storyboard</h1>
+    <span class="meta" id="meta"></span>
+    <span class="spacer"></span>
+    <label class="meta">card size <input type="range" id="zoom" min="150" max="420" value="220"></label>
+    <button id="addShot">+ Shot</button>
+    <button class="primary" id="playAll">&#9654; Play animatic</button>
+    <span id="saveState">saved</span>
+  </header>
+  <div class="brief" id="briefBar">
+    <span class="txt" id="briefTxt" title="open the board settings"></span>
+    <span class="req" id="boardReq"></span>
+    <button id="briefEdit">Director's notes &amp; board</button>
+  </div>
+  <div>
+    <div class="banner" id="banner"></div>
+    <div class="tl-wrap"><div class="tl" id="tl"></div><div class="tl-time"><span id="tl0"></span><span id="tl1"></span></div></div>
+  </div>
+  <main>
+    <div class="grid-wrap"><div class="grid" id="grid"></div></div>
+    <aside>
+      <div class="preview" id="preview">select a shot</div>
+      <div class="transport">
+        <button id="playShot" title="play this shot (Space)">&#9654; Shot</button>
+        <button id="playFrom" title="play from this shot">&#9654; From here</button>
+        <button id="stop">&#9632;</button>
+        <span class="t" id="clock">0:00.0</span>
+      </div>
+      <div class="tabs"><button id="tabShot" class="on">Shot</button><button id="tabBoard">Board &amp; notes</button></div>
+      <div class="editor" id="editor"></div>
+      <div class="help">
+        Drag cards to reorder. Drop an image on a card or frame slot, or an audio file on the audio slot.
+        <kbd>&larr;</kbd><kbd>&rarr;</kbd> select, <kbd>Space</kbd> play shot, <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate.
+        Requests are picked up by your agent (<code>storyboard requests</code>). Every save keeps a copy in history/.
+      </div>
+    </aside>
+  </main>
+</div>
+<audio id="audio" preload="auto"></audio>
+<audio id="shotAudio" preload="auto"></audio>
+<script>
+"use strict";
+const CAM = {
+  size: ["Extreme wide", "Wide", "Full shot", "Medium wide", "Medium", "Medium close-up", "Close-up", "Extreme close-up",
+    "Insert", "Over-the-shoulder", "Two-shot", "Group shot", "POV", "Establishing"],
+  angle: ["Eye level", "Low angle", "High angle", "Overhead / top-down", "Worm's eye", "Dutch angle", "Aerial / drone", "Shoulder level"],
+  move: ["Locked off", "Handheld", "Steadicam follow", "Push-in", "Pull-out", "Pan left", "Pan right", "Tilt up", "Tilt down",
+    "Track left", "Track right", "Tracking alongside", "Crane up", "Crane down", "Orbit", "Zoom in", "Whip pan", "Crash zoom"],
+  lens: ["14mm", "18mm", "24mm", "28mm", "35mm", "50mm", "85mm", "100mm macro", "135mm", "200mm"],
+};
+let B = null, VERSION = null, NAME = "", STATUSES = [];
+let sel = 0, dirty = false, saving = false, saveTimer = null, sideTab = "shot";
+let playing = null;
+const $ = id => document.getElementById(id);
+const audio = $("audio"), shotAudio = $("shotAudio");
+const STATUS_COLOR = s => getComputedStyle(document.documentElement).getPropertyValue("--s-" + (s || "draft")).trim() || "#6b6f7a";
+const fileUrl = p => p ? "/file?p=" + encodeURIComponent(p) : "";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const fmt = t => { t = Math.max(0, t); const m = Math.floor(t / 60); return m + ":" + (t - m * 60).toFixed(1).padStart(4, "0"); };
+const H = {"X-Storyboard": "1"};
+const api = (path, opts = {}) => fetch(path, {...opts, headers: {...H, ...(opts.headers || {})}});
+
+// ================= HOME
+async function home() {
+  $("homeView").classList.remove("hidden"); document.title = "Storyboards";
+  const j = await (await fetch("/api/boards")).json();
+  $("bgrid").innerHTML = j.boards.map(b => `
+    <div class="bcard" data-n="${esc(b.name)}">
+      <div class="thumb" data-open style="${b.thumb ? `background-image:url('${fileUrl(b.thumb)}')` : ""}">${b.thumb ? "" : "no frames yet"}
+        ${b.requests ? `<span class="flags"><span class="rq">${b.requests} REQ</span></span>` : ""}</div>
+      <div class="cbody"><span class="t" data-open>${esc(b.title)}</span>
+        <span class="cline"><span>${esc(b.name)} &middot; ${b.kind} &middot; ${b.shots} shots &middot; ${fmt(b.seconds)}</span><span>${esc(b.updated)}</span></span>
+        <div class="acts"><button data-open>Open</button><button data-act="rename">Rename</button><button data-act="duplicate">Duplicate</button><button data-del style="margin-left:auto">Delete</button></div>
+        <div class="acts hidden" data-form><input placeholder="new_name" style="flex:1;padding:2px 6px"><button data-go>OK</button><button data-cancel>&times;</button></div>
+        <span class="err" data-err></span></div></div>`).join("") || `<div class="empty">No boards yet.</div>`;
+  document.querySelectorAll(".bcard").forEach(c => {
+    const n = c.dataset.n, form = c.querySelector("[data-form]"), inp = form.querySelector("input");
+    c.querySelectorAll("[data-open]").forEach(e => e.onclick = () => location.href = "/?b=" + encodeURIComponent(n));
+    c.querySelectorAll("[data-act]").forEach(e => e.onclick = () => {
+      form.dataset.act = e.dataset.act; form.classList.remove("hidden");
+      inp.value = e.dataset.act === "duplicate" ? n + "_b" : n; inp.focus(); inp.select();
+    });
+    form.querySelector("[data-cancel]").onclick = () => form.classList.add("hidden");
+    const delBtn = c.querySelector("[data-del]");
+    delBtn.onclick = async () => {  // no browser dialogs: a second click within 3 s confirms
+      if (!delBtn.dataset.armed) {
+        delBtn.dataset.armed = "1"; delBtn.textContent = "Click again to delete"; delBtn.style.borderColor = "var(--bad)";
+        setTimeout(() => { delete delBtn.dataset.armed; delBtn.textContent = "Delete"; delBtn.style.borderColor = ""; }, 3000); return;
+      }
+      const r = await api("/api/boards", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({action: "delete", name: n})});
+      const k = await r.json(); if (!r.ok) { c.querySelector("[data-err]").textContent = k.error; return; }
+      home();
+    };
+    const go = async () => {
+      const r = await api("/api/boards", {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({action: form.dataset.act, name: n, new_name: inp.value.trim()})});
+      const k = await r.json(); if (!r.ok) { c.querySelector("[data-err]").textContent = k.error; return; }
+      home();
+    };
+    form.querySelector("[data-go]").onclick = go; inp.onkeydown = e => { if (e.key === "Enter") go(); };
+  });
+}
+$("nTitle").oninput = () => { if (!$("nName").dataset.touched) $("nName").value = $("nTitle").value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40); };
+$("nName").oninput = () => { $("nName").dataset.touched = "1"; };
+$("nCreate").onclick = async () => {
+  const [w, h] = $("nSize").value.split("x").map(Number);
+  const brief = $("nBrief").value.trim(), name = $("nName").value.trim();
+  const r = await api("/api/boards", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({action: "create", name, title: $("nTitle").value.trim() || name, kind: $("nKind").value,
+      width: w, height: h, brief,
+      request: $("nDraft").checked && brief ? "Draft the shots from the director's notes." : ""})});
+  const j = await r.json(); if (!r.ok) { $("nErr").textContent = j.error; return; }
+  location.href = "/?b=" + encodeURIComponent(j.name);
+};
+
+// ================= BOARD: load / save
+function times() {
+  let t = +((B.audio || {}).offset || 0); const out = [];
+  for (const s of B.shots) { const d = +s.duration || 0; out.push([t, t + d]); t += d; }
+  return out;
+}
+function total() { const t = times(); return t.length ? t[t.length - 1][1] : +((B.audio || {}).offset || 0); }
+function beat() { const a = B.audio || {}; return a.bpm ? 60 / a.bpm : 0; }
+
+async function load(keepSel) {
+  const r = await fetch("/api/board?b=" + encodeURIComponent(NAME));
+  if (!r.ok) { document.body.innerHTML = `<div class="empty">No board "${esc(NAME)}". <a href="/">All boards</a></div>`; return; }
+  const j = await r.json();
+  const selId = B && B.shots[sel] ? B.shots[sel].id : null;
+  B = j.board; VERSION = j.version; STATUSES = j.statuses;
+  if (keepSel && selId) { const i = B.shots.findIndex(s => s.id === selId); sel = i >= 0 ? i : Math.min(sel, B.shots.length - 1); }
+  sel = Math.max(0, Math.min(sel, B.shots.length - 1));
+  dirty = false; setSave("saved");
+  document.documentElement.style.setProperty("--ar", (B.width || 16) + "/" + (B.height || 9));
+  const af = (B.audio || {}).file || "";
+  if (audio.dataset.src !== af) { audio.src = af ? fileUrl(af) : ""; audio.dataset.src = af; }
+  if (!B.shots.length) sideTab = "board";
+  renderAll();
+}
+function setSave(text, cls) { const e = $("saveState"); e.textContent = text; e.className = cls || ""; }
+function touch() { dirty = true; setSave("unsaved", "dirty"); clearTimeout(saveTimer); saveTimer = setTimeout(save, 700); }
+async function save() {
+  if (saving) { saveTimer = setTimeout(save, 300); return; }
+  saving = true; setSave("saving...", "dirty");
+  try {
+    const r = await api("/api/board?b=" + encodeURIComponent(NAME), {method: "PUT", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({version: VERSION, board: B})});
+    const j = await r.json();
+    if (r.status === 409) {
+      setSave("conflict", "err");
+      showBanner("The board changed on disk (probably the agent) after your last load. Your unsaved edit was not written. " +
+        "<button onclick='load(true);hideBanner()'>Load latest</button>");
+    } else if (!r.ok) { setSave("error", "err"); showBanner("Save failed: " + esc(j.error)); }
+    else { VERSION = j.version; dirty = false; setSave("saved"); }
+  } catch (e) { setSave("offline", "err"); showBanner("Server not reachable. Is storyboard serve running?"); }
+  saving = false;
+}
+function showBanner(h) { $("banner").innerHTML = h; $("banner").classList.add("show"); }
+function hideBanner() { $("banner").classList.remove("show"); }
+function flash(t) { setSave(t); setTimeout(() => { if (!dirty) setSave("saved"); }, 2500); }
+function poll() {
+  setInterval(async () => {
+    if (dirty || saving || document.activeElement.matches("input,textarea,select")) return;
+    try { const j = await (await fetch("/api/version?b=" + encodeURIComponent(NAME))).json();
+      if (j.version && j.version !== VERSION) { await load(true); flash("reloaded: board changed on disk"); } } catch (e) {}
+  }, 2500);
+}
+
+// ================= BOARD: render
+function renderAll() { renderHeader(); renderTimeline(); renderGrid(); renderSide(); }
+function renderHeader() {
+  $("title").textContent = B.title || NAME;
+  const n = B.shots.length, a = B.audio || {};
+  $("meta").textContent = `${NAME} · ${B.kind || "story"} · ${n} shots · ${fmt(total() - (+(a.offset || 0)))}` +
+    (a.bpm ? ` · ${a.bpm} BPM` : "") + ` · ${B.width}x${B.height} · ${B.frame_style || "sketch"} frames`;
+  document.title = (B.title || NAME) + " - storyboard";
+  $("briefTxt").innerHTML = B.brief ? "<b>Director's notes:</b> " + esc(B.brief) : "No director's notes yet. Click to write them.";
+  $("boardReq").textContent = B.request ? "Request for the agent: " + B.request : "";
+}
+function renderTimeline() {
+  const tl = $("tl"), T = times(), t0 = +((B.audio || {}).offset || 0), t1 = Math.max(total(), t0 + 1);
+  const x = t => ((t - t0) / (t1 - t0) * 100) + "%";
+  let h = "";
+  for (const sc of (B.sections || [])) {
+    if (sc.out <= t0 || sc.in >= t1) continue;
+    h += `<div class="sec" style="left:${x(Math.max(sc.in, t0))};width:calc(${x(Math.min(sc.out, t1))} - ${x(Math.max(sc.in, t0))})">${esc(sc.name)}</div>`;
+  }
+  if (!(B.sections || []).length) {  // story: label runs of the same section/scene
+    let start = 0;
+    B.shots.forEach((s, i) => {
+      const nxt = B.shots[i + 1];
+      if (!nxt || (nxt.section || "") !== (s.section || "")) {
+        if (s.section) h += `<div class="sec" style="left:${x(T[start][0])};width:calc(${x(T[i][1])} - ${x(T[start][0])})">${esc(s.section)}</div>`;
+        start = i + 1;
+      }
+    });
+  }
+  B.shots.forEach((s, i) => {
+    h += `<div class="blk${i === sel ? " sel" : ""}" data-i="${i}" title="${esc(s.id)} ${fmt(T[i][0])}" style="left:${x(T[i][0])};` +
+      `width:calc(${x(T[i][1])} - ${x(T[i][0])} - 1px);background:${STATUS_COLOR(s.status)}">${esc(s.id)}</div>`;
+  });
+  h += `<div class="head" id="head" style="left:${x(clockTime())}"></div>`;
+  tl.innerHTML = h;
+  $("tl0").textContent = fmt(t0); $("tl1").textContent = fmt(t1);
+  tl.onclick = e => {
+    const b = e.target.closest(".blk"); if (b) { select(+b.dataset.i); return; }
+    const r = tl.getBoundingClientRect(), t = t0 + (e.clientX - r.left) / r.width * (t1 - t0);
+    const i = T.findIndex(([a, z]) => t >= a && t < z); if (i >= 0) select(i);
+  };
+}
+function camText(s) { return s.camera || ""; }
+function cardText(s) {
+  const parts = [];
+  if (s.lyric) parts.push(`<i>♪ ${esc(s.lyric)}</i>`);
+  if (s.dialogue) parts.push(`<i>${s.speaker ? esc(s.speaker) + ": " : ""}“${esc(s.dialogue)}”</i>`);
+  if (s.action) parts.push(esc(s.action));
+  else if (!parts.length && s.motion_prompt) parts.push(esc(s.motion_prompt));
+  if (camText(s)) parts.push(`<span class="cam">${esc(camText(s))}</span>`);
+  return parts.join("<br>");
+}
+function renderGrid() {
+  const g = $("grid"), T = times();
+  if (!B.shots.length) {
+    g.innerHTML = `<div class="empty">No shots yet.<br><br>Write the director's notes in <b>Board &amp; notes</b> and ask the agent to draft them,` +
+      ` or click <b>+ Shot</b>.</div>`; return;
+  }
+  g.innerHTML = B.shots.map((s, i) => {
+    const img = s.start_frame ? `background-image:url('${fileUrl(s.start_frame)}')` : "";
+    const flags = (s.audio ? "<span>♫</span>" : "") + (s.request ? '<span class="rq">REQ</span>' : "");
+    return `<div class="card${i === sel ? " sel" : ""}" draggable="true" data-i="${i}" style="border-top-color:${STATUS_COLOR(s.status)}">
+      <div class="thumb" style="${img}">${s.start_frame ? "" : esc((s.start_frame_prompt || s.action || "no frame").slice(0, 110))}
+        <span class="badge">${esc(s.id)}</span><span class="flags">${flags}</span>
+        ${s.end_frame ? `<span class="endmini" style="background-image:url('${fileUrl(s.end_frame)}')"></span>` : ""}</div>
+      <div class="cbody"><div class="cline"><span>${fmt(T[i][0])} · ${(+s.duration).toFixed(2)}s</span>
+        <span>${esc(s.section || s.location || "")}</span></div><div class="ctext">${cardText(s)}</div></div></div>`;
+  }).join("");
+  g.querySelectorAll(".card").forEach(wireCard);
+}
+let dragFrom = null;
+function wireCard(c) {
+  const i = +c.dataset.i;
+  c.onclick = () => { sideTab = "shot"; select(i); };
+  c.ondragstart = e => { dragFrom = i; c.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(i)); };
+  c.ondragend = () => { dragFrom = null; document.querySelectorAll(".card").forEach(x => x.classList.remove("dragging", "drop-before", "drop-after")); };
+  c.ondragover = e => {
+    e.preventDefault();
+    const files = e.dataTransfer.types.includes("Files");
+    document.querySelectorAll(".card").forEach(x => x.classList.remove("drop-before", "drop-after"));
+    c.querySelector(".thumb").classList.toggle("filedrop", files);
+    if (!files && dragFrom !== null) { const r = c.getBoundingClientRect(); c.classList.add(e.clientX < r.left + r.width / 2 ? "drop-before" : "drop-after"); }
+  };
+  c.ondragleave = () => { c.classList.remove("drop-before", "drop-after"); c.querySelector(".thumb").classList.remove("filedrop"); };
+  c.ondrop = async e => {
+    e.preventDefault(); c.querySelector(".thumb").classList.remove("filedrop");
+    if (e.dataTransfer.files.length) { const f = e.dataTransfer.files[0]; await uploadTo(i, f.type.startsWith("audio") ? "audio" : "start", f); return; }
+    if (dragFrom === null) return;
+    const r = c.getBoundingClientRect(); let to = e.clientX < r.left + r.width / 2 ? i : i + 1;
+    const selId = B.shots[sel].id, [m] = B.shots.splice(dragFrom, 1); if (dragFrom < to) to--;
+    B.shots.splice(to, 0, m); sel = B.shots.findIndex(s => s.id === selId);
+    dragFrom = null; touch(); renderAll();
+  };
+}
+async function upload(shotId, slot, file) {
+  setSave("uploading...", "dirty");
+  const r = await api(`/api/upload?b=${encodeURIComponent(NAME)}&shot=${encodeURIComponent(shotId)}&slot=${slot}&name=${encodeURIComponent(file.name)}`,
+    {method: "POST", body: file});
+  const j = await r.json();
+  if (!r.ok) { showBanner("Upload failed: " + esc(j.error)); setSave("error", "err"); return null; }
+  return j.path;
+}
+async function uploadTo(i, slot, file) {
+  const s = B.shots[i], p = await upload(s.id, slot, file); if (!p) return;
+  if (slot === "audio") s.audio = p; else s[slot + "_frame"] = p;
+  if (slot !== "audio" && (s.status || "draft") === "draft") s.status = "frames";
+  touch(); renderAll();
+}
+function select(i) {
+  if (i < 0 || i >= B.shots.length) return;
+  sel = i;
+  document.querySelectorAll(".card").forEach(c => c.classList.toggle("sel", +c.dataset.i === i));
+  document.querySelectorAll(".blk").forEach(c => c.classList.toggle("sel", +c.dataset.i === i));
+  const c = document.querySelector(`.card[data-i="${i}"]`); if (c) c.scrollIntoView({block: "nearest"});
+  renderSide();
+}
+function renderPreview(i, t) {
+  const s = B.shots[i], p = $("preview");
+  if (!s) { p.innerHTML = B.shots.length ? "select a shot" : "no shots yet"; p.dataset.key = ""; return; }
+  const cap = s.lyric ? "♪ " + s.lyric : s.dialogue ? (s.speaker ? s.speaker + ": " : "") + "“" + s.dialogue + "”" : "";
+  const media = s.pick || (s.takes && s.takes[0] && s.takes[0].path);
+  let inner;
+  if (media && /\.(mp4|webm|mov)$/i.test(media)) inner = `<video src="${fileUrl(media)}" muted autoplay loop playsinline></video>`;
+  else {
+    let f = s.start_frame;
+    if (t !== undefined && s.end_frame) { const [a, z] = times()[i]; if (t > a + (z - a) * 0.6) f = s.end_frame; }
+    inner = f ? `<img src="${fileUrl(f)}">` : `<div style="padding:20px;color:#888">${esc(s.start_frame_prompt || s.action || "no frame yet")}</div>`;
+  }
+  const key = inner + cap;
+  if (p.dataset.key !== key) { p.innerHTML = inner + (cap ? `<div class="cap">${esc(cap)}</div>` : ""); p.dataset.key = key; }
+}
+
+// ================= side panel
+function renderSide() {
+  $("tabShot").classList.toggle("on", sideTab === "shot"); $("tabBoard").classList.toggle("on", sideTab === "board");
+  renderPreview(B.shots.length ? sel : -1);
+  if (sideTab === "board" || !B.shots.length) renderBoardPanel(); else renderShotPanel();
+}
+$("tabShot").onclick = () => { sideTab = "shot"; renderSide(); };
+$("tabBoard").onclick = () => { sideTab = "board"; renderSide(); };
+$("briefEdit").onclick = $("briefTxt").onclick = () => { sideTab = "board"; renderSide(); const t = document.querySelector('[data-b="brief"]'); if (t) t.focus(); };
+
+function opts(list, v) { return `<option value=""></option>` + list.map(o => `<option${o === v ? " selected" : ""}>${esc(o)}</option>`).join("") +
+  (v && !list.includes(v) ? `<option selected>${esc(v)}</option>` : ""); }
+function field(obj, k, label, type, rows) {
+  const v = obj[k] ?? "", cls = k === "request" ? ' class="request"' : "";
+  if (type === "area") return `<label>${label}<textarea data-k="${k}"${cls} rows="${rows || 3}">${esc(v)}</textarea></label>`;
+  return `<label>${label}<input data-k="${k}"${cls} value="${esc(Array.isArray(v) ? v.join(", ") : v)}"></label>`;
+}
+function buildCamera(s) {
+  const c = s.cam || {};
+  const parts = [c.size, c.angle, c.lens, c.move, c.extra].filter(Boolean);
+  if (parts.length) s.camera = parts.join(", "); else delete s.camera;
+}
+function renderShotPanel() {
+  const ed = $("editor"), s = B.shots[sel], T = times()[sel], bt = beat();
+  if (!s.cam && s.camera) s.cam = {extra: s.camera};  // older shots: free-text camera lands in "extra" until edited
+  const c = s.cam || {};
+  const durBtns = bt ? `<button data-dd="${-4 * bt}">-bar</button><button data-dd="${-bt}">-beat</button><button data-dd="${bt}">+beat</button><button data-dd="${4 * bt}">+bar</button>`
+    : `<button data-dd="-1">-1s</button><button data-dd="-0.5">-.5</button><button data-dd="0.5">+.5</button><button data-dd="1">+1s</button>`;
+  const speakers = (B.characters || []).map(x => x.id);
+  const takes = (s.takes || []).map(t => `<div>${esc(t.label || t.path)} ${s.pick === t.path ? "<b>(picked)</b>" : `<button data-pick="${esc(t.path)}">pick</button>`}
+     <video src="${fileUrl(t.path)}" controls muted preload="metadata"></video></div>`).join("");
+  ed.innerHTML = `
+    <div class="row"><label>Shot id<input data-k="id" value="${esc(s.id)}"></label>
+      <label>Timing<input disabled value="${fmt(T[0])} – ${fmt(T[1])}"></label></div>
+    <label>Duration (s)<div class="dur"><input data-k="duration" type="number" step="0.01" min="0.1" value="${(+s.duration).toFixed(3)}">${durBtns}
+      ${s.audio ? '<button id="fitAudio" title="set the duration to the audio clip length">fit to audio</button>' : ""}</div></label>
+    <div class="statusbar">${STATUSES.map(st => { const on = (s.status || "draft") === st;
+      return `<button data-st="${st}" class="${on ? "on" : ""}" style="${on ? "background:" + STATUS_COLOR(st) : ""}">${st}</button>`; }).join("")}</div>
+    <div class="slots"><div class="slot" data-slot="start" style="${s.start_frame ? `background-image:url('${fileUrl(s.start_frame)}')` : ""}">start frame</div>
+      <div class="slot" data-slot="end" style="${s.end_frame ? `background-image:url('${fileUrl(s.end_frame)}')` : ""}">end frame</div></div>
+    ${field(s, "request", "Request for the agent (“new frame, lower angle”, “split in two”, “generate the line”)", "area", 2)}
+    <div class="row">${field(s, "section", B.kind === "music" ? "Section" : "Scene")}${field(s, "location", "Location")}</div>
+    ${field(s, "action", "Action (what happens)", "area", 2)}
+    <div class="sect">${B.kind === "music" ? "Lyric &amp; audio" : "Dialogue &amp; audio"}</div>
+    ${B.kind === "music" ? field(s, "lyric", "Lyric", "area", 2) : `<div class="row" style="grid-template-columns:130px 1fr">
+      <label>Speaker<select data-k="speaker">${opts(speakers, s.speaker)}</select></label>${field(s, "dialogue", "Dialogue / VO (the script)", "area", 2)}</div>`}
+    <div class="aslot" id="aslot">${s.audio ? `<audio controls src="${fileUrl(s.audio)}"></audio><button id="clrAudio" title="remove audio">&times;</button>`
+      : `<span style="flex:1">${B.audio && B.audio.file ? "uses the board track" : "no audio"}: drop a file here or click</span>`}</div>
+    <div class="sect">Camera</div>
+    <div class="row">
+      <label>Shot size<select data-cam="size">${opts(CAM.size, c.size)}</select></label>
+      <label>Angle<select data-cam="angle">${opts(CAM.angle, c.angle)}</select></label>
+      <label>Movement<select data-cam="move">${opts(CAM.move, c.move)}</select></label>
+      <label>Lens<select data-cam="lens">${opts(CAM.lens, c.lens)}</select></label></div>
+    <label>Camera extra (free text)<input data-cam="extra" value="${esc(c.extra || "")}"></label>
+    <div class="sect">Prompts</div>
+    ${field(s, "characters", "Characters (comma separated ids)")}
+    ${field(s, "start_frame_prompt", "Start frame prompt", "area", 4)}
+    ${field(s, "end_frame_prompt", "End frame prompt", "area", 3)}
+    ${field(s, "motion_prompt", "Motion prompt (video)", "area", 3)}
+    <div class="row">${field(s, "backend", "Backend / workflow")}${field(s, "seeds", "Seeds")}</div>
+    ${field(s, "notes", "Notes", "area", 2)}
+    <div class="row3"><button id="dup">Duplicate</button><button id="split">Split</button><button id="del">Delete</button></div>
+    <div class="row"><button id="addAfter">+ Shot after</button><button id="clearFrames">Clear frames</button></div>
+    ${takes ? `<div class="takes"><b>Takes</b>${takes}</div>` : ""}`;
+  ed.querySelectorAll("[data-k]").forEach(el => el.oninput = el.onchange = () => {
+    const k = el.dataset.k; let v = el.value;
+    if (k === "duration") { s[k] = +Math.max(0.1, parseFloat(v) || 0.1).toFixed(3); touch(); renderTimeline(); refreshCardMeta(); return; }
+    if (k === "characters") v = v.split(",").map(x => x.trim()).filter(Boolean);
+    if (k === "id" && (!v || B.shots.some((o, j) => j !== sel && o.id === v))) { el.style.borderColor = "var(--bad)"; return; }
+    el.style.borderColor = "";
+    if (v === "" || (Array.isArray(v) && !v.length)) delete s[k]; else s[k] = v;
+    touch(); refreshCard(sel); if (k === "request") renderHeader();
+  });
+  ed.querySelectorAll("[data-cam]").forEach(el => el.oninput = el.onchange = () => {
+    s.cam = s.cam || {}; if (el.value) s.cam[el.dataset.cam] = el.value; else delete s.cam[el.dataset.cam];
+    buildCamera(s); touch(); refreshCard(sel);
+  });
+  ed.querySelectorAll("[data-dd]").forEach(b => b.onclick = () => { s.duration = Math.max(0.1, +((+s.duration) + (+b.dataset.dd)).toFixed(3)); touch(); renderAll(); });
+  ed.querySelectorAll("[data-st]").forEach(b => b.onclick = () => { s.status = b.dataset.st; touch(); renderAll(); });
+  ed.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { s.pick = b.dataset.pick; s.status = "picked"; touch(); renderAll(); });
+  ed.querySelectorAll(".slot").forEach(sl => wireDrop(sl, f => uploadTo(sel, sl.dataset.slot, f), "image/*"));
+  wireDrop($("aslot"), f => uploadTo(sel, "audio", f), "audio/*", !!s.audio);
+  if ($("clrAudio")) $("clrAudio").onclick = e => { e.stopPropagation(); delete s.audio; touch(); renderAll(); };
+  if ($("fitAudio")) $("fitAudio").onclick = () => {
+    const a = new Audio(fileUrl(s.audio));
+    a.onloadedmetadata = () => { s.duration = +(a.duration + 0.2).toFixed(3); touch(); renderAll(); };
+  };
+  $("dup").onclick = duplicate; $("del").onclick = del; $("addAfter").onclick = () => addShot(sel + 1);
+  $("split").onclick = split;
+  $("clearFrames").onclick = () => { delete s.start_frame; delete s.end_frame; touch(); renderAll(); };
+}
+function wireDrop(el, onFile, accept, noClick) {
+  el.ondragover = e => { e.preventDefault(); el.classList.add("filedrop"); };
+  el.ondragleave = () => el.classList.remove("filedrop");
+  el.ondrop = e => { e.preventDefault(); el.classList.remove("filedrop"); if (e.dataTransfer.files.length) onFile(e.dataTransfer.files[0]); };
+  if (!noClick) el.onclick = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = accept;
+    inp.onchange = () => inp.files[0] && onFile(inp.files[0]); inp.click(); };
+}
+
+function renderBoardPanel() {
+  const ed = $("editor"), a = B.audio || {};
+  const chars = (B.characters || []).map((c, i) => `<div class="charrow" data-ci="${i}">
+      <input data-c="id" value="${esc(c.id)}" placeholder="ID"><input data-c="desc" value="${esc(c.desc || c.ref || "")}" placeholder="look / description">
+      <input data-c="voice_id" value="${esc(c.voice_id || "")}" placeholder="ElevenLabs voice id"><button data-cdel="${i}">&times;</button></div>`).join("");
+  ed.innerHTML = `
+    <label>Title<input data-b="title" value="${esc(B.title || "")}"></label>
+    <div class="row"><label>Kind<select data-b="kind"><option value="story"${B.kind !== "music" ? " selected" : ""}>story / drama</option>
+        <option value="music"${B.kind === "music" ? " selected" : ""}>music video</option></select></label>
+      <label>Frame style<select data-b="frame_style"><option value="sketch"${B.frame_style !== "photo" ? " selected" : ""}>sketch (fast, for planning)</option>
+        <option value="photo"${B.frame_style === "photo" ? " selected" : ""}>photo (for rendering)</option></select></label></div>
+    <label>Director's notes (the story, tone, what matters; the agent drafts shots from this)
+      <textarea data-b="brief" rows="9">${esc(B.brief || "")}</textarea></label>
+    ${field(B, "request", "Request for the agent (board level)", "area", 2).replace('data-k="request"', 'data-b="request"')}
+    <div class="quick">
+      <button data-q="Draft the shots from the director's notes (replace the current shots).">Draft shots from notes</button>
+      <button data-q="Add shots for the parts of the director's notes that aren't covered yet (keep the current shots).">Add missing shots</button>
+      <button data-q="Make two alternative versions of this board as new boards (different coverage and pacing) so I can compare.">Make 2 variants</button>
+      <button data-q="Generate ${B.frame_style === "photo" ? "photo" : "sketch"} frames for every shot without a start frame.">Make missing frames</button>
+      <button data-q="Generate the dialogue audio with ElevenLabs for every shot with dialogue and a speaker.">Generate dialogue audio</button>
+    </div>
+    <label>Look (appended to every photo frame prompt: film stock, light, palette)<textarea data-b="look" rows="2">${esc(B.look || "")}</textarea></label>
+    <div class="sect">Characters</div>
+    <div class="chars">${chars}<button id="addChar">+ Character</button></div>
+    <div class="sect">Board audio track (song or full voice-over; optional)</div>
+    <div class="aslot" id="boardAudio">${a.file ? `<audio controls src="${fileUrl(a.file)}"></audio><button id="clrBAudio">&times;</button>`
+      : `<span style="flex:1">no track: drop an audio file here or click. Shots can also have their own audio.</span>`}</div>
+    ${a.file ? `<div class="row3"><label>Starts at (s)<input data-a="offset" type="number" step="0.01" value="${+(a.offset || 0)}"></label>
+      <label>BPM<input data-a="bpm" type="number" step="0.1" value="${a.bpm || ""}"></label>
+      <label>First beat (s)<input data-a="first_beat" type="number" step="0.01" value="${a.first_beat || ""}"></label></div>` : ""}
+    <div class="sect">Board</div>
+    <div class="meta" style="color:var(--dim)">${esc(NAME)} · ${B.width}x${B.height} · rename or duplicate it from <a href="/">All boards</a>.
+      Hand approved shots to your renderer with <code>storyboard export ${esc(NAME)} --approved</code>.</div>
+    ${field(B, "notes", "Board notes", "area", 2)}`;
+  ed.querySelectorAll("[data-b]").forEach(el => el.oninput = el.onchange = () => {
+    const k = el.dataset.b; if (el.value) B[k] = el.value; else delete B[k];
+    touch(); renderHeader(); if (k === "kind") renderSide();
+  });
+  ed.querySelectorAll('[data-k="notes"]').forEach(el => el.oninput = () => { B.notes = el.value; touch(); });
+  ed.querySelectorAll("[data-q]").forEach(b => b.onclick = () => {
+    B.request = B.request ? B.request + "\n" + b.dataset.q : b.dataset.q; touch(); renderHeader(); renderSide();
+  });
+  ed.querySelectorAll("[data-a]").forEach(el => el.oninput = () => {
+    const v = parseFloat(el.value); B.audio = B.audio || {};
+    if (isNaN(v)) delete B.audio[el.dataset.a]; else B.audio[el.dataset.a] = v;
+    touch(); renderHeader(); renderTimeline(); refreshCardMeta();
+  });
+  ed.querySelectorAll(".charrow input").forEach(el => {
+    const c = B.characters[+el.closest(".charrow").dataset.ci];
+    if (el.dataset.c === "id") {
+      // rename on commit (blur / Enter), and carry it into every shot: characters, speaker, and the name in the text
+      el.onchange = () => {
+        const old = c.id, nu = el.value.trim().toUpperCase().replace(/\s+/g, "_");
+        if (!nu || nu === old) { el.value = old; return; }
+        if (B.characters.some(o => o !== c && o.id === nu)) { el.style.borderColor = "var(--bad)"; return; }
+        c.id = nu; el.value = nu; el.style.borderColor = "";
+        const n = renameInShots(old, nu); touch(); renderAll(); flash(`renamed ${old} → ${nu} in ${n} shot(s)`);
+      };
+    } else el.oninput = () => { if (el.value) c[el.dataset.c] = el.value; else delete c[el.dataset.c]; touch(); };
+  });
+  ed.querySelectorAll("[data-cdel]").forEach(b => b.onclick = () => { B.characters.splice(+b.dataset.cdel, 1); touch(); renderSide(); });
+  $("addChar").onclick = () => { B.characters = B.characters || []; B.characters.push({id: "CHAR" + (B.characters.length + 1)}); touch(); renderSide(); };
+  wireDrop($("boardAudio"), async f => { const p = await upload("BOARD", "audio", f); if (!p) return;
+    B.audio = {...(B.audio || {}), file: p, offset: (B.audio || {}).offset || 0}; audio.src = fileUrl(p); audio.dataset.src = p; touch(); renderAll(); },
+    "audio/*", !!a.file);
+  if ($("clrBAudio")) $("clrBAudio").onclick = () => { delete B.audio; audio.src = ""; audio.dataset.src = ""; touch(); renderAll(); };
+}
+function renameInShots(old, nu) {
+  const cap = w => w.charAt(0) + w.slice(1).toLowerCase();
+  const pairs = [[old, nu], [cap(old), cap(nu)], [old.toLowerCase(), nu.toLowerCase()]];
+  let n = 0;
+  for (const s of B.shots) {
+    const before = JSON.stringify(s);
+    if (Array.isArray(s.characters)) s.characters = s.characters.map(c => c === old ? nu : c);
+    if (s.speaker === old) s.speaker = nu;
+    for (const k of ["action", "dialogue", "start_frame_prompt", "end_frame_prompt", "motion_prompt", "notes"]) {
+      if (typeof s[k] !== "string") continue;
+      for (const [a, b] of pairs) s[k] = s[k].replace(new RegExp(`\\b${a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g"), b);
+    }
+    if (JSON.stringify(s) !== before) n++;
+  }
+  return n;
+}
+function refreshCard(i) {
+  const c = document.querySelector(`.card[data-i="${i}"]`); if (!c) return;
+  const s = B.shots[i];
+  c.querySelector(".ctext").innerHTML = cardText(s);
+  c.querySelector(".badge").textContent = s.id;
+  c.querySelector(".flags").innerHTML = (s.audio ? "<span>♫</span>" : "") + (s.request ? '<span class="rq">REQ</span>' : "");
+}
+function refreshCardMeta() {
+  const T = times();
+  document.querySelectorAll(".card").forEach(c => { const i = +c.dataset.i;
+    c.querySelector(".cline span").textContent = `${fmt(T[i][0])} · ${(+B.shots[i].duration).toFixed(2)}s`; });
+  renderHeader();
+}
+
+// ================= shot operations
+function newId(base) {
+  const ids = new Set(B.shots.map(s => s.id));
+  const m = /^(.*?)(\d+)([a-z]?)$/i.exec(base || "");
+  if (m) { for (const suf of "bcdefghijklmnopqrstuvwxyz") { const id = m[1] + m[2] + suf; if (!ids.has(id)) return id; } }
+  const pre = B.kind === "music" ? "S" : "SH"; let n = B.shots.length + 1;
+  while (ids.has(pre + String(n).padStart(2, "0"))) n++;
+  return pre + String(n).padStart(2, "0");
+}
+function addShot(at) {
+  at = at ?? B.shots.length;
+  const prev = B.shots[at - 1];
+  const s = {id: newId(), duration: beat() ? +(beat() * 8).toFixed(3) : 3, status: "draft"};
+  if (prev && prev.section) s.section = prev.section;
+  if (prev && prev.location) s.location = prev.location;
+  B.shots.splice(at, 0, s); sel = at; sideTab = "shot"; touch(); renderAll();
+}
+function duplicate() {
+  const s = JSON.parse(JSON.stringify(B.shots[sel])); s.id = newId(B.shots[sel].id);
+  delete s.takes; delete s.pick; delete s.audio; if (["rendered", "picked"].includes(s.status)) s.status = "approved";
+  B.shots.splice(sel + 1, 0, s); sel++; touch(); renderAll();
+}
+function split() {
+  const s = B.shots[sel], bt = beat(); let a = s.duration / 2;
+  if (bt) a = Math.max(bt, Math.round(a / bt) * bt);
+  const b = +(s.duration - a).toFixed(3); if (b < 0.1) return;
+  const n = JSON.parse(JSON.stringify(s)); n.id = newId(s.id); n.duration = b; delete n.takes; delete n.pick; delete n.audio;
+  s.duration = +a.toFixed(3);
+  if (s.end_frame) { n.start_frame = s.end_frame; delete s.end_frame; }
+  B.shots.splice(sel + 1, 0, n); touch(); renderAll();
+}
+function del() {
+  const b = $("del"), s = B.shots[sel];
+  if (!b.dataset.armed) {  // no browser dialogs: a second click within 3 s confirms
+    b.dataset.armed = "1"; b.textContent = "Click again to delete " + s.id;
+    setTimeout(() => { delete b.dataset.armed; b.textContent = "Delete"; }, 3000); return;
+  }
+  B.shots.splice(sel, 1); sel = Math.min(sel, B.shots.length - 1); touch(); renderAll();
+}
+
+// ================= playback (animatic)
+let clockBase = 0, perfBase = 0, raf = null, curShot = -1;
+function hasTrack() { return !!(B.audio && B.audio.file); }
+function clockTime() {
+  if (!B) return 0;
+  if (playing) return hasTrack() ? audio.currentTime : clockBase + (performance.now() - perfBase) / 1000;
+  return times()[sel] ? times()[sel][0] : 0;
+}
+function play(from, to, mode) {
+  stop();
+  playing = {end: to, mode}; curShot = -1;
+  if (hasTrack()) { audio.currentTime = from; audio.play(); } else { clockBase = from; perfBase = performance.now(); }
+  tick();
+}
+function stop() {
+  if (raf) cancelAnimationFrame(raf); raf = null;
+  if (playing && hasTrack()) audio.pause();
+  shotAudio.pause(); playing = null; curShot = -1;
+  document.querySelectorAll(".card.playing").forEach(c => c.classList.remove("playing"));
+}
+function tick() {
+  if (!playing) return;
+  const t = clockTime(), T = times(), t0 = +((B.audio || {}).offset || 0), t1 = Math.max(total(), t0 + 1);
+  $("clock").textContent = fmt(t);
+  const h = $("head"); if (h) h.style.left = ((t - t0) / (t1 - t0) * 100) + "%";
+  const i = T.findIndex(([a, z]) => t >= a && t < z);
+  if (i >= 0) {
+    if (i !== curShot) {
+      curShot = i;
+      if (playing.mode === "from" && i !== sel) select(i);
+      document.querySelectorAll(".card").forEach(c => c.classList.toggle("playing", +c.dataset.i === i));
+      shotAudio.pause();
+      if (B.shots[i].audio) { shotAudio.src = fileUrl(B.shots[i].audio); shotAudio.currentTime = Math.max(0, t - T[i][0]); shotAudio.play(); }
+    }
+    renderPreview(i, t);
+  }
+  if (t >= playing.end || i < 0) { stop(); return; }
+  raf = requestAnimationFrame(tick);
+}
+$("playShot").onclick = () => { if (!B.shots.length) return; const [a, z] = times()[sel]; play(a, z, "shot"); };
+$("playFrom").onclick = () => { if (!B.shots.length) return; play(times()[sel][0], total(), "from"); };
+$("playAll").onclick = () => { if (playing) { stop(); return; } if (!B.shots.length) return; select(0); play(times()[0][0], total(), "from"); };
+$("stop").onclick = stop;
+$("addShot").onclick = () => addShot();
+$("zoom").oninput = e => document.documentElement.style.setProperty("--cw", e.target.value + "px");
+document.addEventListener("keydown", e => {
+  if (!B || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
+  if (e.key === "ArrowRight") { select(sel + 1); e.preventDefault(); }
+  else if (e.key === "ArrowLeft") { select(sel - 1); e.preventDefault(); }
+  else if (e.key === " ") { e.preventDefault(); if (playing) stop(); else $("playShot").click(); }
+  else if (e.key.toLowerCase() === "d" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); duplicate(); }
+});
+window.addEventListener("beforeunload", () => { if (dirty) save(); });
+
+// ================= route
+// Older servers have no /api/server (404) and are stale by definition: they predate this check.
+fetch("/api/server").then(r => r.ok ? r.json() : {stale: true}).then(j => {
+  if (!j.stale) return;
+  const msg = "The storyboard server is older than its code. Stop it (Ctrl+C), run storyboard serve again, then reload this page.";
+  const bar = document.createElement("div"); bar.className = "banner show"; bar.textContent = msg;
+  document.body.prepend(bar);
+}).catch(() => {});
+NAME = new URLSearchParams(location.search).get("b") || "";
+if (NAME) { $("boardView").classList.remove("hidden"); load().then(poll); } else home();
+</script>
+</body>
+</html>
