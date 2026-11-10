@@ -527,6 +527,11 @@ function renderShotPanel() {
       return `<button data-st="${st}" class="${on ? "on" : ""}" style="${on ? "background:" + STATUS_COLOR(st) : ""}">${st}</button>`; }).join("")}</div>
     <div class="slots"><div class="slot" data-slot="start" style="${s.start_frame ? `background-image:url('${fileUrl(s.start_frame)}')` : ""}">start frame</div>
       <div class="slot" data-slot="end" style="${s.end_frame ? `background-image:url('${fileUrl(s.end_frame)}')` : ""}">end frame</div></div>
+    <div class="row">
+      <button id="genFrame" title="generate this shot's start frame with ComfyUI">Generate frame (${esc(B.frame_style === "photo" ? "photo" : "sketch")})</button>
+      ${SERVER.render ? `<button id="renderShot" title="${s.workflow ? "render this shot with " + esc(s.workflow) : "set a workflow first"}"${s.workflow ? "" : " disabled"}>Render shot</button>`
+        : `<button disabled title="the server has no render command (STORYBOARD_RENDER_CMD)">Render shot</button>`}</div>
+    <div id="jobLine" class="meta" style="color:var(--dim);font-size:11px"></div>
     ${field(s, "request", "Request for the agent (“new frame, lower angle”, “split in two”, “generate the line”)", "area", 2)}
     <div class="row">${field(s, "section", B.kind === "music" ? "Section" : "Scene")}${field(s, "location", "Location")}</div>
     ${field(s, "action", "Action (what happens)", "area", 2)}
@@ -609,6 +614,14 @@ function renderShotPanel() {
   $("dup").onclick = duplicate; $("del").onclick = del; $("addAfter").onclick = () => addShot(sel + 1);
   $("split").onclick = split;
   $("clearFrames").onclick = () => { delete s.start_frame; delete s.end_frame; touch(); renderAll(); };
+  $("genFrame").onclick = () => startJob({action: "frames", shots: [s.id]});
+  if ($("renderShot")) $("renderShot").onclick = () => {
+    if (!["approved", "rendered", "picked"].includes(s.status || "draft")) {
+      showJobLine(`Render needs an approved shot: set ${s.id} to approved first.`); return;
+    }
+    startJob({action: "render", shots: [s.id], seeds: (s.seeds || "1").toString().replace(/\s/g, "")});
+  };
+  showJobLine();
 }
 function wireDrop(el, onFile, accept, noClick) {
   el.ondragover = e => { e.preventDefault(); el.classList.add("filedrop"); };
@@ -638,7 +651,7 @@ function renderBoardPanel() {
       <button data-q="Draft the shots from the director's notes (replace the current shots).">Draft shots from notes</button>
       <button data-q="Add shots for the parts of the director's notes that aren't covered yet (keep the current shots).">Add missing shots</button>
       <button data-q="Make two alternative versions of this board as new boards (different coverage and pacing) so I can compare.">Make 2 variants</button>
-      <button data-q="Generate ${B.frame_style === "photo" ? "photo" : "sketch"} frames for every shot without a start frame.">Make missing frames</button>
+      <button id="genMissing" title="run it now through ComfyUI">Generate missing frames now</button>
       <button data-q="Generate the dialogue audio with ElevenLabs for every shot with dialogue and a speaker.">Generate dialogue audio</button>
     </div>
     <label>Look (appended to every photo frame prompt: film stock, light, palette)<textarea data-b="look" rows="2">${esc(B.look || "")}</textarea></label>
@@ -659,6 +672,7 @@ function renderBoardPanel() {
     touch(); renderHeader(); if (k === "kind") renderSide();
   });
   ed.querySelectorAll('[data-k="notes"]').forEach(el => el.oninput = () => { B.notes = el.value; touch(); });
+  $("genMissing").onclick = () => startJob({action: "frames", missing: true});
   ed.querySelectorAll("[data-q]").forEach(b => b.onclick = () => {
     B.request = B.request ? B.request + "\n" + b.dataset.q : b.dataset.q; touch(); renderHeader(); renderSide();
   });
@@ -811,9 +825,40 @@ document.addEventListener("keydown", e => {
 });
 window.addEventListener("beforeunload", () => { if (dirty) save(); });
 
+// ================= jobs (generate frames, render shots; run by the server one at a time)
+let JOBS = [], jobTimer = null;
+async function startJob(body) {
+  if (dirty) await save();  // the job reads the board from disk
+  const r = await api("/api/jobs", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({...body, b: NAME})});
+  const j = await r.json();
+  if (!r.ok) { showJobLine("Not started: " + j.error); return; }
+  await pollJobs();
+}
+async function pollJobs() {
+  clearTimeout(jobTimer);
+  try { JOBS = (await (await fetch("/api/jobs?b=" + encodeURIComponent(NAME))).json()).jobs; } catch (e) { return; }
+  showJobLine();
+  if (JOBS.some(j => j.status === "queued" || j.status === "running")) jobTimer = setTimeout(pollJobs, 2000);
+}
+function showJobLine(msg) {
+  const el = $("jobLine"); if (!el) return;
+  if (msg) { el.textContent = msg; return; }
+  const live = JOBS.filter(j => j.status === "queued" || j.status === "running");
+  const last = JOBS[JOBS.length - 1];
+  const j = live[0] || last;
+  if (!j) { el.textContent = ""; return; }
+  const what = `${j.action === "frames" ? "Frames" : "Render"} ${j.shots.length ? j.shots.join(", ") : "(missing)"}`;
+  const tail = (j.log || []).slice(-1)[0] || "";
+  el.textContent = `${what}: ${j.status}${live.length > 1 ? ` (+${live.length - 1} queued)` : ""}${tail ? " — " + tail : ""}`;
+}
+
 // ================= route
 // Older servers have no /api/server (404) and are stale by definition: they predate this check.
+let SERVER = {render: false};
 fetch("/api/server").then(r => r.ok ? r.json() : {stale: true}).then(j => {
+  SERVER = j; if (B) renderSide();
+  if (NAME) pollJobs();
   if (!j.stale) return;
   const msg = "The storyboard server is older than its code. Stop it (Ctrl+C), run storyboard serve again, then reload this page.";
   const bar = document.createElement("div"); bar.className = "banner show"; bar.textContent = msg;

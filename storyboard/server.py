@@ -5,7 +5,9 @@ Routes
   GET  /api/boards                board summaries
   GET  /api/board?b=<name>        {name, version, board, statuses}
   GET  /api/version?b=<name>      {version}  (the page polls this to pick up edits made on disk, e.g. by an agent)
-  GET  /api/server                {stale}    (true when the package code changed after the server started)
+  GET  /api/server                {stale, render}  (stale: package code changed after start; render: a render command is set)
+  GET  /api/jobs?b=<name>         jobs for the board (frames / render), newest last, with their last log lines
+  POST /api/jobs                  {action: frames | render, b, shots: [ids], style?, missing?, seeds?} -> job
   GET  /file?p=<root-relative>    any file under the root, with HTTP Range support (audio/video seeking)
   PUT  /api/board?b=<name>        {version, board} -> 409 if the file changed since that version
   POST /api/boards                {action: create | rename | duplicate | delete, ...}
@@ -26,6 +28,7 @@ import webbrowser
 from pathlib import Path
 
 from . import board as bd
+from .jobs import Jobs
 
 PKG = Path(__file__).resolve().parent
 PAGE = PKG / "web" / "board.html"
@@ -42,8 +45,9 @@ def local_host(headers):
     return (headers.get("Host") or "").rsplit(":", 1)[0] in ("127.0.0.1", "localhost")
 
 
-def make_handler(cfg):
+def make_handler(cfg, jobs=None):
     started = code_stamp()
+    jobs = jobs or Jobs(cfg)
 
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -85,7 +89,9 @@ def make_handler(cfg):
                        "media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
                 return self._send(200, page, "text/html; charset=utf-8", {"Content-Security-Policy": csp})
             if u.path == "/api/server":
-                return self._send(200, {"stale": code_stamp() != started})
+                return self._send(200, {"stale": code_stamp() != started, "render": bool(jobs.render_cmd)})
+            if u.path == "/api/jobs":
+                return self._send(200, {"jobs": jobs.list(q.get("b", [None])[0])})
             if u.path == "/api/boards":
                 return self._send(200, {"boards": [s for s in (bd.summary(cfg, n) for n in bd.names(cfg)) if s]})
             if u.path == "/api/board":
@@ -173,6 +179,14 @@ def make_handler(cfg):
             q = urllib.parse.parse_qs(u.query)
             if u.path == "/api/boards":
                 return self._boards_action(self._json_body())
+            if u.path == "/api/jobs":
+                body = self._json_body()
+                try:
+                    job = jobs.submit(body.get("action"), body.get("b", ""), body.get("shots") or [],
+                                      body.get("style"), bool(body.get("missing")), str(body.get("seeds", "1")))
+                except (ValueError, TypeError) as e:
+                    return self._send(400, {"error": str(e)})
+                return self._send(200, {"job": job})
             if u.path == "/api/upload":
                 return self._upload(q)
             return self._send(404, "not found", "text/plain")
@@ -218,7 +232,7 @@ def make_handler(cfg):
     return H
 
 
-def serve(cfg, port=8770, name=None, open_browser=True):
+def serve(cfg, port=8770, name=None, open_browser=True, render_cmd=None):
     cfg.boards.mkdir(parents=True, exist_ok=True)
     class Server(http.server.ThreadingHTTPServer):
         # Windows' SO_REUSEADDR lets a second server bind a port that is in use and steal half the requests;
@@ -226,7 +240,7 @@ def serve(cfg, port=8770, name=None, open_browser=True):
         allow_reuse_address = os.name != "nt"
 
     try:
-        srv = Server(("127.0.0.1", port), make_handler(cfg))
+        srv = Server(("127.0.0.1", port), make_handler(cfg, Jobs(cfg, render_cmd)))
     except OSError as e:
         raise SystemExit(f"port {port} is busy ({e}); is a storyboard server already running? Try --port {port + 1}")
     url = f"http://127.0.0.1:{port}/" + (f"?b={urllib.parse.quote(name)}" if name else "")
