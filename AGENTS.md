@@ -35,7 +35,8 @@ terminal. The board reloads by itself when the file changes, so your edits show 
 Board: `title`, `kind` (`story` | `music`), `width`, `height`, `fps`, `frame_style` (`sketch` | `photo`), `brief`
 (director's notes), `request`, `look` (appended to photo frame prompts: film stock, light, palette), `notes`,
 `audio` (`{file, offset, bpm, first_beat}`, optional board track), `sections` (`[{name, in, out}]`, music),
-`characters` (`[{id, desc, voice_id}]`), `shots`.
+`characters` (`[{id, desc, block, voice_id, pack}]`: `block` is the full character block for final frames,
+`pack` a character pack folder name), `shots`.
 
 Shot: `id`, `duration` (seconds; order = array order, start times are derived), `section` (scene), `location`,
 `action` (what happens), `dialogue` + `speaker` (a character id) or `lyric`, `audio` (path), `cam`
@@ -43,6 +44,16 @@ Shot: `id`, `duration` (seconds; order = array order, start times are derived), 
 `characters` (ids), `start_frame`, `end_frame` (paths), `start_frame_prompt`, `end_frame_prompt`, `motion_prompt`,
 `backend`, `seeds`, `notes`, `request`, `status` (`draft` → `frames` → `approved` → `rendered` → `picked`),
 `takes` (`[{path, label}]`), `pick`.
+
+Production fields (read by the renderer from the exported `shot.json`):
+- `lane`: `A` dialogue, `B` character in a moving world, `C` cinematic / movement, `D` photo to video, `E` music video
+  (default `A`).
+- `motion`: profile `dialogue` | `ambient` | `action` | `music`. Missing means `dialogue` for lane A and `ambient`
+  otherwise. It decides which checks and thresholds apply to the shot's takes.
+- `workflow`: the workflow to render with, a name from comfy-ui-video-workflows (e.g. `dialogue-ltx25distilled`).
+- `reference_video`: a performance clip the shot should follow (path).
+- `landing_pose`: true when a pinned end frame is a deliberate landing pose (action shots).
+- `beats`: timed beats `[{t, action, impact}]`, seconds from the shot start; `impact: true` marks a hit.
 
 Paths are relative to the root (`STORYBOARD_ROOT`). Board-owned files live in `<boards>/<name>/frames/` and `audio/`.
 
@@ -64,6 +75,14 @@ Camera values the board's dropdowns offer (free text is allowed too):
 - Fill `cam` and set `camera` to the joined text. Add `dialogue` + `speaker` only where someone speaks.
 - Add `characters` with a concrete visual `desc` (age, build, hair, clothes) so frames stay consistent.
 - Put your interpretation (tone, what you added) in the board `notes`, so the person can push back.
+- **Action (fights, chases, fast moves).** Break them into shots of 1 to 3 s. Write each as timed beats in
+  `beats` (`0.0` wind-up, `0.8` strike lands on the forearm block, impact) and in the action text. Set
+  `motion: action`. Don't plan a pinned end frame unless it is a deliberate landing pose (then set `landing_pose`):
+  two pinned poses tend to turn a move into slow interpolation. Start frames show the pose at the first beat, limbs
+  fully in frame. List the reference clips the director should shoot or find (one per move) in the shot's
+  `request` or the board notes.
+- **Never invent identity data.** Don't fill a `voice_id` or a character `block` from memory; leave a request for the
+  director instead.
 - "Make variants" means new boards: `storyboard duplicate <name> <name>_b`, then rework the copy.
 
 ## Frames
@@ -79,5 +98,7 @@ Camera values the board's dropdowns offer (free text is allowed too):
 ## Hand-off
 
 `storyboard export <name> --approved [--dest DIR]` writes one folder per approved shot (`start.png`, `end.png`,
-`prompt.txt`, `audio.wav`, `shot.json`) for whatever video workflow renders it. Add finished renders back to a shot
+`prompt.txt`, `audio.wav`, `reference.<ext>` when the shot has a reference video, `shot.json`) for whatever video
+workflow renders it. `shot.json` carries timing, lane, motion profile, workflow, beats, landing_pose, the character
+blocks of the shot's characters, the speaker's voice id and pack names. Add finished renders back to a shot
 as `takes` so the person can pick one on the board.

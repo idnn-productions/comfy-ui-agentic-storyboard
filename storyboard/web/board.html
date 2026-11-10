@@ -124,6 +124,10 @@ aside { border-left: 1px solid var(--line); background: var(--panel); overflow: 
 .chars { display: grid; gap: 6px; }
 .charrow { display: grid; grid-template-columns: 90px 1fr 120px 26px; gap: 4px; }
 .charrow input { padding: 4px 6px; }
+.charrow2 { display: grid; grid-template-columns: 120px 1fr; gap: 4px; margin: -2px 0 6px; }
+.charrow2 input, .charrow2 textarea { padding: 4px 6px; min-height: 0; }
+.check { display: flex !important; gap: 6px; align-items: center; color: var(--text) !important; }
+.check input { width: auto !important; }
 .quick { display: flex; gap: 6px; flex-wrap: wrap; }
 .quick button { font-size: 11px; }
 .takes video { width: 100%; border-radius: 4px; margin-top: 4px; }
@@ -215,6 +219,15 @@ const CAM = {
     "Track left", "Track right", "Tracking alongside", "Crane up", "Crane down", "Orbit", "Zoom in", "Whip pan", "Crash zoom"],
   lens: ["14mm", "18mm", "24mm", "28mm", "35mm", "50mm", "85mm", "100mm macro", "135mm", "200mm"],
 };
+const LANES = {A: "A dialogue", B: "B character in a moving world", C: "C cinematic / movement", D: "D photo to video", E: "E music video"};
+const MOTIONS = ["dialogue", "ambient", "action", "music"];
+// workflow names from comfy-ui-video-workflows (free text is allowed too)
+const WORKFLOWS = ["dialogue-ltx25distilled", "dialogue-ltx23", "dialogue-ltx23-latentsync", "dialogue-ltx25dev-latentsync",
+  "wide-ltx25distilled", "wide-ltx23-latentsync", "sing-wan22-s2v", "dance-wandancer", "movement-ltx25distilled-flf",
+  "movement-ltx25distilled-i2v", "movement-pikah3", "broll-wan22-flf", "i2v-hunyuan15", "motion-wananimate2",
+  "motion-wananimate2-distilled", "relight-ltx23"];
+const shotMotion = s => s.motion || ((s.lane || "A") === "A" ? "dialogue" : "ambient");
+const beatsText = s => (s.beats || []).map(b => `${b.t} | ${b.action || ""}${b.impact ? " | impact" : ""}`).join("\n");
 let B = null, VERSION = null, NAME = "", STATUSES = [];
 let sel = 0, dirty = false, saving = false, saveTimer = null, sideTab = "shot";
 let playing = null;
@@ -388,6 +401,12 @@ function cardText(s) {
   if (camText(s)) parts.push(`<span class="cam">${esc(camText(s))}</span>`);
   return parts.join("<br>");
 }
+function cardFlags(s) {
+  const m = shotMotion(s);
+  return (["action", "music"].includes(m) ? `<span>${esc(m.toUpperCase())}</span>` : "") +
+    (s.reference_video ? "<span>REF</span>" : "") + (s.audio ? "<span>♫</span>" : "") +
+    (s.request ? '<span class="rq">REQ</span>' : "");
+}
 function renderGrid() {
   const g = $("grid"), T = times();
   if (!B.shots.length) {
@@ -396,7 +415,7 @@ function renderGrid() {
   }
   g.innerHTML = B.shots.map((s, i) => {
     const img = s.start_frame ? `background-image:url('${fileUrl(s.start_frame)}')` : "";
-    const flags = (s.audio ? "<span>♫</span>" : "") + (s.request ? '<span class="rq">REQ</span>' : "");
+    const flags = cardFlags(s);
     return `<div class="card${i === sel ? " sel" : ""}" draggable="true" data-i="${i}" style="border-top-color:${STATUS_COLOR(s.status)}">
       <div class="thumb" style="${img}">${s.start_frame ? "" : esc((s.start_frame_prompt || s.action || "no frame").slice(0, 110))}
         <span class="badge">${esc(s.id)}</span><span class="flags">${flags}</span>
@@ -440,8 +459,8 @@ async function upload(shotId, slot, file) {
 }
 async function uploadTo(i, slot, file) {
   const s = B.shots[i], p = await upload(s.id, slot, file); if (!p) return;
-  if (slot === "audio") s.audio = p; else s[slot + "_frame"] = p;
-  if (slot !== "audio" && (s.status || "draft") === "draft") s.status = "frames";
+  if (slot === "audio") s.audio = p; else if (slot === "reference") s.reference_video = p; else s[slot + "_frame"] = p;
+  if (["start", "end"].includes(slot) && (s.status || "draft") === "draft") s.status = "frames";
   touch(); renderAll();
 }
 function select(i) {
@@ -516,6 +535,17 @@ function renderShotPanel() {
       <label>Speaker<select data-k="speaker">${opts(speakers, s.speaker)}</select></label>${field(s, "dialogue", "Dialogue / VO (the script)", "area", 2)}</div>`}
     <div class="aslot" id="aslot">${s.audio ? `<audio controls src="${fileUrl(s.audio)}"></audio><button id="clrAudio" title="remove audio">&times;</button>`
       : `<span style="flex:1">${B.audio && B.audio.file ? "uses the board track" : "no audio"}: drop a file here or click</span>`}</div>
+    <div class="sect">Production</div>
+    <div class="row">
+      <label>Lane<select data-p="lane">${Object.entries(LANES).map(([k, v]) => `<option value="${k}"${(s.lane || "A") === k ? " selected" : ""}>${esc(v)}</option>`).join("")}</select></label>
+      <label>Motion profile<select data-p="motion"><option value="">default (${esc(shotMotion({lane: s.lane}))})</option>${MOTIONS.map(m => `<option${s.motion === m ? " selected" : ""}>${m}</option>`).join("")}</select></label></div>
+    <label>Workflow<input data-p="workflow" list="wfList" value="${esc(s.workflow || "")}" placeholder="e.g. dialogue-ltx25distilled"></label>
+    <datalist id="wfList">${WORKFLOWS.map(w => `<option value="${w}">`).join("")}</datalist>
+    <label class="check"><input type="checkbox" data-p="landing_pose"${s.landing_pose ? " checked" : ""}> end frame is a deliberate landing pose (action shots)</label>
+    <div class="aslot" id="refslot">${s.reference_video ? `<video src="${fileUrl(s.reference_video)}" muted controls style="flex:1;max-height:140px"></video><button id="clrRef" title="remove reference">&times;</button>`
+      : `<span style="flex:1">reference video (performance to follow): drop a clip here or click</span>`}</div>
+    <label>Beats, one per line: seconds | action | impact
+      <textarea data-p="beats" rows="3" placeholder="0.8 | strike lands on the forearm block | impact">${esc(beatsText(s))}</textarea></label>
     <div class="sect">Camera</div>
     <div class="row">
       <label>Shot size<select data-cam="size">${opts(CAM.size, c.size)}</select></label>
@@ -528,7 +558,7 @@ function renderShotPanel() {
     ${field(s, "start_frame_prompt", "Start frame prompt", "area", 4)}
     ${field(s, "end_frame_prompt", "End frame prompt", "area", 3)}
     ${field(s, "motion_prompt", "Motion prompt (video)", "area", 3)}
-    <div class="row">${field(s, "backend", "Backend / workflow")}${field(s, "seeds", "Seeds")}</div>
+    <div class="row">${field(s, "backend", "Backend notes")}${field(s, "seeds", "Seeds")}</div>
     ${field(s, "notes", "Notes", "area", 2)}
     <div class="row3"><button id="dup">Duplicate</button><button id="split">Split</button><button id="del">Delete</button></div>
     <div class="row"><button id="addAfter">+ Shot after</button><button id="clearFrames">Clear frames</button></div>
@@ -542,6 +572,26 @@ function renderShotPanel() {
     if (v === "" || (Array.isArray(v) && !v.length)) delete s[k]; else s[k] = v;
     touch(); refreshCard(sel); if (k === "request") renderHeader();
   });
+  ed.querySelectorAll("[data-p]").forEach(el => el.onchange = () => {
+    const k = el.dataset.p;
+    if (k === "landing_pose") { if (el.checked) s.landing_pose = true; else delete s.landing_pose; }
+    else if (k === "beats") {
+      const beats = [];
+      for (const line of el.value.split("\n").map(x => x.trim()).filter(Boolean)) {
+        const [t, action, flag] = line.split("|").map(x => x.trim());
+        const sec = parseFloat(t);
+        if (isNaN(sec) || sec < 0) { el.style.borderColor = "var(--bad)"; return; }
+        const beat = {t: sec, action: action || ""}; if (/impact/i.test(flag || "")) beat.impact = true;
+        beats.push(beat);
+      }
+      el.style.borderColor = "";
+      if (beats.length) s.beats = beats.sort((a, b) => a.t - b.t); else delete s.beats;
+    } else if (el.value) s[k] = k === "workflow" ? el.value.trim().toLowerCase() : el.value;
+    else delete s[k];
+    touch(); refreshCard(sel); if (k === "lane") renderSide();
+  });
+  wireDrop($("refslot"), f => uploadTo(sel, "reference", f), "video/*", !!s.reference_video);
+  if ($("clrRef")) $("clrRef").onclick = e => { e.stopPropagation(); delete s.reference_video; touch(); renderAll(); };
   ed.querySelectorAll("[data-cam]").forEach(el => el.oninput = el.onchange = () => {
     s.cam = s.cam || {}; if (el.value) s.cam[el.dataset.cam] = el.value; else delete s.cam[el.dataset.cam];
     buildCamera(s); touch(); refreshCard(sel);
@@ -572,7 +622,9 @@ function renderBoardPanel() {
   const ed = $("editor"), a = B.audio || {};
   const chars = (B.characters || []).map((c, i) => `<div class="charrow" data-ci="${i}">
       <input data-c="id" value="${esc(c.id)}" placeholder="ID"><input data-c="desc" value="${esc(c.desc || c.ref || "")}" placeholder="look / description">
-      <input data-c="voice_id" value="${esc(c.voice_id || "")}" placeholder="ElevenLabs voice id"><button data-cdel="${i}">&times;</button></div>`).join("");
+      <input data-c="voice_id" value="${esc(c.voice_id || "")}" placeholder="ElevenLabs voice id"><button data-cdel="${i}">&times;</button></div>
+      <div class="charrow2" data-ci="${i}"><input data-c="pack" value="${esc(c.pack || "")}" placeholder="pack (e.g. zyra_oon)">
+      <textarea data-c="block" rows="2" placeholder="full CHARACTER block for final frames (optional; the description is used otherwise)">${esc(c.block || "")}</textarea></div>`).join("");
   ed.innerHTML = `
     <label>Title<input data-b="title" value="${esc(B.title || "")}"></label>
     <div class="row"><label>Kind<select data-b="kind"><option value="story"${B.kind !== "music" ? " selected" : ""}>story / drama</option>
@@ -615,8 +667,8 @@ function renderBoardPanel() {
     if (isNaN(v)) delete B.audio[el.dataset.a]; else B.audio[el.dataset.a] = v;
     touch(); renderHeader(); renderTimeline(); refreshCardMeta();
   });
-  ed.querySelectorAll(".charrow input").forEach(el => {
-    const c = B.characters[+el.closest(".charrow").dataset.ci];
+  ed.querySelectorAll(".charrow input, .charrow2 input, .charrow2 textarea").forEach(el => {
+    const c = B.characters[+el.closest("[data-ci]").dataset.ci];
     if (el.dataset.c === "id") {
       // rename on commit (blur / Enter), and carry it into every shot: characters, speaker, and the name in the text
       el.onchange = () => {
@@ -656,7 +708,7 @@ function refreshCard(i) {
   const s = B.shots[i];
   c.querySelector(".ctext").innerHTML = cardText(s);
   c.querySelector(".badge").textContent = s.id;
-  c.querySelector(".flags").innerHTML = (s.audio ? "<span>♫</span>" : "") + (s.request ? '<span class="rq">REQ</span>' : "");
+  c.querySelector(".flags").innerHTML = cardFlags(s);
 }
 function refreshCardMeta() {
   const T = times();

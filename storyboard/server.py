@@ -30,7 +30,8 @@ from . import board as bd
 PKG = Path(__file__).resolve().parent
 PAGE = PKG / "web" / "board.html"
 UPLOAD_EXT = {"start": (".png", ".jpg", ".jpeg", ".webp"), "end": (".png", ".jpg", ".jpeg", ".webp"),
-              "audio": (".wav", ".mp3", ".flac", ".m4a", ".ogg"), "take": (".mp4", ".webm", ".mov")}
+              "audio": (".wav", ".mp3", ".flac", ".m4a", ".ogg"), "take": (".mp4", ".webm", ".mov"),
+              "reference": (".mp4", ".webm", ".mov")}
 
 
 def code_stamp():
@@ -206,7 +207,7 @@ def make_handler(cfg):
             if ext not in UPLOAD_EXT[slot]:
                 return self._send(400, {"error": f"{ext} not allowed for {slot}"})
             data = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-            d = (cfg.board_dir(name) / ("audio" if slot == "audio" else "frames")).resolve()
+            d = (cfg.board_dir(name) / {"audio": "audio", "reference": "refs", "take": "takes"}.get(slot, "frames")).resolve()
             d.mkdir(parents=True, exist_ok=True)
             f = (d / f"{shot}_{slot}_{time.strftime('%Y%m%d_%H%M%S')}{ext}").resolve()
             if not f.is_relative_to(d):

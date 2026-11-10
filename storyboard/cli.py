@@ -120,7 +120,9 @@ def cmd_frames(cfg, a):
 
 def cmd_export(cfg, a):
     """One folder per shot: start.png, end.png, prompt.txt, audio.wav (shot audio, or the board track cut to the
-    shot's time), shot.json. A neutral hand-off format for whatever renders the video."""
+    shot's time), reference.<ext> (the shot's reference video, if any) and shot.json (timing, lane, motion profile,
+    workflow, beats, landing_pose, character blocks, speaker voice id, packs). A neutral hand-off format for whatever
+    renders the video."""
     b, _ = bd.load(cfg, a.name, check=True)
     dest = (Path(a.dest) if a.dest else cfg.board_dir(a.name) / "export").resolve()
     want = set(a.shots.split(",")) if a.shots else None
@@ -154,9 +156,24 @@ def cmd_export(cfg, a):
             subprocess.run(["ffmpeg", "-v", "error", "-y", *cut, "-i", str(src), "-ar", "48000", "-ac", "2",
                             str(d / "audio.wav")], check=True)
         meta = {k: s.get(k) for k in ("id", "section", "duration", "dialogue", "speaker", "lyric", "camera",
-                                      "characters", "backend", "seeds") if s.get(k) not in (None, "", [])}
+                                      "characters", "backend", "seeds", "workflow", "beats") if s.get(k) not in (None, "", [])}
         meta.update(board=a.name, start=round(t0, 3), end=round(t1, 3), width=b.get("width"),
-                    height=b.get("height"), fps=b.get("fps", 24))
+                    height=b.get("height"), fps=b.get("fps", 24), lane=s.get("lane", "A"), motion=bd.shot_motion(s),
+                    landing_pose=bool(s.get("landing_pose", False)))
+        ref = cfg.resolve(s["reference_video"]) if s.get("reference_video") else None
+        if ref and ref.is_file():
+            shutil.copy2(ref, d / ("reference" + ref.suffix.lower()))
+            meta["reference_video"] = "reference" + ref.suffix.lower()
+        chars = {c["id"]: c for c in b.get("characters", [])}
+        blocks = {cid: chars[cid].get("block") or chars[cid].get("desc") for cid in s.get("characters", [])
+                  if cid in chars and (chars[cid].get("block") or chars[cid].get("desc"))}
+        if blocks:
+            meta["character_blocks"] = blocks
+        if s.get("speaker") in chars and chars[s["speaker"]].get("voice_id"):
+            meta["voice_id"] = chars[s["speaker"]]["voice_id"]
+        packs = {cid: chars[cid]["pack"] for cid in s.get("characters", []) if chars.get(cid, {}).get("pack")}
+        if packs:
+            meta["packs"] = packs
         (d / "shot.json").write_text(json.dumps(meta, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
         n += 1
         print("exported", s["id"], "->", d)
