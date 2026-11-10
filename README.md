@@ -60,6 +60,21 @@ Options and environment variables:
 Pointing the root at the folder that holds ComfyUI's `input/` and `output/` lets boards reference renders and
 inputs directly, and lets the board play finished takes.
 
+## Buttons that run things
+
+Under a shot's frame slots, **Generate frame** makes its start frame through ComfyUI (sketch or photo, the board's
+setting), and the board panel has **Generate missing frames now**. **Render shot** hands an approved shot with a
+`workflow` to your renderer: set the command with `STORYBOARD_RENDER_CMD` (or `storyboard serve --render-cmd`), with the
+placeholders `{board}`, `{shots}` and `{seeds}`, for example
+
+```
+STORYBOARD_RENDER_CMD="python /path/to/render_shots.py {board} --shots {shots} --seeds {seeds}"
+```
+
+Without it the button stays disabled. Jobs run one at a time on the server, the page shows their progress, and the
+board reloads with the new frame or take when a job finishes. The command only ever receives validated board names,
+shot ids and seeds.
+
 ## Working with an agent
 
 The board and the agent share one file per board, `<boards>/<name>/storyboard.json`. You edit on the page; the agent

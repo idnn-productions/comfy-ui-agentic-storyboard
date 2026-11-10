@@ -29,7 +29,7 @@ from .server import serve
 
 
 def cmd_serve(cfg, a):
-    serve(cfg, a.port, a.name, not a.no_open)
+    serve(cfg, a.port, a.name, not a.no_open, a.render_cmd)
 
 
 def cmd_new(cfg, a):
@@ -191,6 +191,8 @@ def main(argv=None):
     p.add_argument("name", nargs="?")
     p.add_argument("--port", type=int, default=8770)
     p.add_argument("--no-open", action="store_true")
+    p.add_argument("--render-cmd", help="command the board's Render button runs ({board} {shots} {seeds}); "
+                                        "default: STORYBOARD_RENDER_CMD")
     p.set_defaults(fn=cmd_serve)
 
     p = sub.add_parser("new", help="create a board")

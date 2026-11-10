@@ -262,6 +262,35 @@ class ServerTests(Base):
         self.assertEqual(st, 200)
         self.assertTrue(json.loads(out)["path"].startswith("storyboards/demo/frames/"))
 
+    def test_jobs_endpoint(self):
+        h = {"X-Storyboard": "1", "Content-Type": "application/json"}
+        self.assertEqual(self.req("POST", "/api/jobs", {"action": "frames", "b": "demo"})[0], 403)
+        st, out = self.req("POST", "/api/jobs", {"action": "render", "b": "demo", "shots": ["SH01"]}, h)
+        self.assertEqual(st, 400)
+        self.assertIn("not configured", json.loads(out)["error"])
+        for bad in ({"action": "frames", "b": "../x"}, {"action": "frames", "b": "demo", "shots": ["../a"]},
+                    {"action": "frames", "b": "demo", "style": "oil"}, {"action": "rm -rf", "b": "demo"}):
+            self.assertEqual(self.req("POST", "/api/jobs", bad, h)[0], 400, bad)
+        self.assertFalse(json.loads(self.req("GET", "/api/server")[1])["render"])
+
+    def test_render_job_runs_configured_command(self):
+        import sys
+        import time as _t
+        from storyboard.jobs import Jobs
+        script = Path(self.tmp.name) / "fake_render.py"
+        script.write_text("import sys; print('render', sys.argv[1:])\n", encoding="utf-8")
+        jobs = Jobs(self.cfg, f'"{sys.executable}" "{script}" {{board}} --shots {{shots}} --seeds {{seeds}}')
+        with self.assertRaises(ValueError):
+            jobs.submit("render", "demo", ["SH01"], seeds="1;del")
+        job = jobs.submit("render", "demo", ["SH01", "SH02"], seeds="1,2")
+        for _ in range(100):
+            if jobs.jobs[job["id"]]["status"] in ("done", "failed"):
+                break
+            _t.sleep(0.05)
+        j = jobs.view(jobs.jobs[job["id"]])
+        self.assertEqual(j["status"], "done", j["log"])
+        self.assertIn("['demo', '--shots', 'SH01,SH02', '--seeds', '1,2']", j["log"][-1])
+
     def test_file_outside_root_refused(self):
         self.assertEqual(self.req("GET", "/file?p=../../etc/passwd")[0], 404)
 
