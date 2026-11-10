@@ -91,6 +91,7 @@ Camera values the board's dropdowns offer (free text is allowed too):
   ComfyUI (default: Z-Image Turbo, ~4 s each on a 4090) and sets them on the board.
 - Sketch for planning, photo for shots headed to video. A shot's `start_frame_prompt` overrides the generated
   prompt; use it when a frame needs specific direction.
+- A start frame is one moment. When a shot has `beats`, the generated prompt shows the first beat with the number of people stated; otherwise an action like "stands, then drops" comes out as two figures. For anything subtler, write `start_frame_prompt`.
 - Image models write names and camera jargon into the picture as text. The generator keeps them out; if you write
   a `start_frame_prompt` yourself, describe people instead of naming them and leave out lens/move words.
 - Only one heavy job on the GPU at a time: check that ComfyUI is idle before queueing frames.
