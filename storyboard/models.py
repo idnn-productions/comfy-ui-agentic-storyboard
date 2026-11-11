@@ -28,6 +28,8 @@ BUILTIN = {
                "note": "local photo frames, 25 steps"},
     "moss": {"label": "MOSS-Image", "kind": "local", "graph": "moss_t2i.api.json",
              "note": "local, strongest at lettering (signs, posters)"},
+    "moss-dmd": {"label": "MOSS-Image 8-step DMD", "kind": "local", "graph": "moss_dmd_t2i.api.json",
+                 "note": "local, ~3 s; lodestones DMD LoRA on MOSS SFT; weaker lettering"},
     "gpt-flare": {"label": "GPT image 2.6 flare", "kind": "cloud", "provider": "openai", "model": "gpt-image-2.6-flare",
                   "env": "OPENAI_API_KEY", "usd_per_image": 0.05, "note": "paid, fast comps"},
     "gpt-sunburst": {"label": "GPT image 2.6 sunburst", "kind": "cloud", "provider": "openai",

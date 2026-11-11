@@ -108,6 +108,7 @@ picked shots again on a paid model. Built in:
 | `zimage` | Z-Image Turbo, 8 steps (default) | local, ComfyUI | `z_image_turbo_bf16`, `qwen_3_4b`, `ae` |
 | `qwen21` | Qwen-Image 2.1, 25 steps | local, ComfyUI | `qwen_image_2.1_int8_convrot`, `qwen3vl_8b_int8_convrot`, `qwen_image_2.1_vae_bf16` |
 | `moss` | MOSS-Image, 25 steps (lettering) | local, ComfyUI (v0.42.0+) | `moss_image_sft_int8_convrot`, `qwen3.5_9b_w4a8_gptq`, `flux2-vae_small` |
+| `moss-dmd` | MOSS-Image + 8-step DMD LoRA ([lodestones/MOSS-Image-SFT-8-steps-dmd](https://huggingface.co/lodestones/MOSS-Image-SFT-8-steps-dmd) `lora.safetensors`, saved as `moss_image_sft_8step_dmd_lora.safetensors`) | local, ComfyUI | the MOSS files + that LoRA |
 | `gpt-flare`, `gpt-sunburst` | GPT image 2.6 | OpenAI API, paid | `OPENAI_API_KEY` set |
 
 Before anything runs, the server checks that each model can run now: a local model needs ComfyUI up and every file its
