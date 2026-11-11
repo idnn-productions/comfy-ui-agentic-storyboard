@@ -23,7 +23,9 @@ class FakeChecker(fm.Checker):
 
 class ModelTests(unittest.TestCase):
     def test_shot_then_board_then_default(self):
-        self.assertEqual(fm.shot_model({}, {}), "zimage")
+        self.assertEqual(fm.shot_model({}, {}), "moss-dmd")
+        self.assertEqual(fm.shot_model({"frame_model": "zimage"}, {}), "moss-dmd")  # retired: falls through
+        self.assertEqual(fm.shot_model({"frame_model": "qwen21"}, {"frame_model": "zimage"}), "qwen21")
         self.assertEqual(fm.shot_model({"frame_model": "qwen21"}, {}), "qwen21")
         self.assertEqual(fm.shot_model({"frame_model": "qwen21"}, {"frame_model": "gpt-flare"}), "gpt-flare")
         self.assertEqual(fm.shot_model({"frame_model": "qwen21"}, {"frame_model": "gpt-flare"}, "moss"), "moss")
@@ -38,8 +40,16 @@ class ModelTests(unittest.TestCase):
 
     def test_unreachable_comfy_makes_local_unavailable(self):
         ms = {m["id"]: m for m in fm.Checker("http://127.0.0.1:1", ttl=0).all()}
-        self.assertFalse(ms["zimage"]["available"])
-        self.assertEqual(ms["zimage"]["reason"], "ComfyUI is not reachable")
+        self.assertNotIn("zimage", ms)
+        self.assertFalse(ms["moss-dmd"]["available"])
+        self.assertEqual(ms["moss-dmd"]["reason"], "ComfyUI is not reachable")
+
+    def test_ladder_cheap_to_expensive(self):
+        ids = [m["id"] for m in FakeChecker([]).all()]
+        self.assertEqual(ids[:5], ["moss-dmd", "moss", "qwen21", "gpt-flare", "gpt-sunburst"])
+        self.assertEqual(fm.next_up("qwen21"), "gpt-flare")
+        self.assertEqual(fm.next_up("gpt-flare"), "gpt-sunburst")
+        self.assertIsNone(fm.next_up("gpt-sunburst"))
 
     def test_cloud_needs_its_key_and_never_reports_it(self):
         with mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
@@ -68,7 +78,7 @@ class ModelTests(unittest.TestCase):
             b["shots"] = [{"id": "SH01", "duration": 2, "frame_model": "moss"}]
             bd.save(cfg, "demo", b)
             jobs = Jobs(cfg)
-            jobs.models = FakeChecker(["z_image_turbo_bf16.safetensors"])
+            jobs.models = FakeChecker(["qwen_image_2.1_int8_convrot.safetensors"])
             with self.assertRaisesRegex(ValueError, "MOSS-Image is not available"):
                 jobs.submit("frames", "demo", ["SH01"])
             with self.assertRaisesRegex(ValueError, "unknown frame model"):

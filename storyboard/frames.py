@@ -1,14 +1,14 @@
 """Frame generation through a running ComfyUI (HTTP API only: POST /prompt, GET /history, GET /view).
 
-Default graph: Z-Image Turbo text-to-image (8 steps, res_multistep, CFG 1), model files configurable. Any other
-text-to-image graph works too: export it from ComfyUI with "Export (API)" and put these placeholders in its widget
-values: "{{prompt}}", "{{seed}}", "{{width}}", "{{height}}" (numbers may be written as the bare strings). The first
-SaveImage output is used.
+The graphs come from the frame models (models.py). Any other text-to-image graph works too: export it from ComfyUI
+with "Export (API)" and put these placeholders in its widget values: "{{prompt}}", "{{seed}}", "{{width}}",
+"{{height}}" (numbers may be written as the bare strings). The first saved output image is used.
 """
 import hashlib
 import json
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -16,8 +16,6 @@ import uuid
 SKETCH = ("Rough storyboard sketch, black pencil and grey marker on white paper, loose confident lines, simple shading, "
           "one single hand-drawn film storyboard panel filling the image, not a comic page, no text. ")
 NO_TEXT = " No words, no letters, no labels, no captions."
-
-ZIMAGE_MODELS = {"unet": "z_image_turbo_bf16.safetensors", "clip": "qwen_3_4b.safetensors", "vae": "ae.safetensors"}
 
 
 def _unname(text, board):
@@ -75,27 +73,13 @@ def shot_seed(shot_id):
     return int(hashlib.sha1(shot_id.encode()).hexdigest()[:6], 16)
 
 
-def zimage_graph(prompt, seed, width, height, prefix, models=None):
-    m = {**ZIMAGE_MODELS, **(models or {})}
-    return {
-        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": m["unet"], "weight_dtype": "default"}},
-        "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": m["clip"], "type": "lumina2", "device": "default"}},
-        "3": {"class_type": "VAELoader", "inputs": {"vae_name": m["vae"]}},
-        "4": {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": ["1", 0], "shift": 3.0}},
-        "5": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["2", 0], "text": prompt}},
-        "6": {"class_type": "ConditioningZeroOut", "inputs": {"conditioning": ["5", 0]}},
-        "7": {"class_type": "EmptySD3LatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},
-        "8": {"class_type": "KSampler", "inputs": {"model": ["4", 0], "positive": ["5", 0], "negative": ["6", 0],
-                                                   "latent_image": ["7", 0], "seed": seed, "steps": 8, "cfg": 1.0,
-                                                   "sampler_name": "res_multistep", "scheduler": "simple", "denoise": 1.0}},
-        "9": {"class_type": "VAEDecode", "inputs": {"samples": ["8", 0], "vae": ["3", 0]}},
-        "10": {"class_type": "SaveImage", "inputs": {"images": ["9", 0], "filename_prefix": prefix}},
-    }
+SAVERS = ("SaveImage", "SaveImageAdvanced")
 
 
-def template_graph(template, prompt, seed, width, height, prefix):
-    """Fill an API-format workflow's {{prompt}} / {{seed}} / {{width}} / {{height}} placeholders."""
-    values = {"prompt": prompt, "seed": seed, "width": width, "height": height}
+def template_graph(template, prompt, seed, width, height, prefix, **extra):
+    """Fill an API-format workflow's {{prompt}} / {{seed}} / {{width}} / {{height}} placeholders (and any `extra` ones,
+    such as {{image_1}} in an edit graph)."""
+    values = {"prompt": prompt, "seed": seed, "width": width, "height": height, **extra}
 
     def fill(v):
         if isinstance(v, str):
@@ -110,9 +94,63 @@ def template_graph(template, prompt, seed, width, height, prefix):
     g = json.loads(json.dumps(template))
     for node in g.values():
         node["inputs"] = {k: fill(v) for k, v in node.get("inputs", {}).items()}
-        if node.get("class_type") == "SaveImage":
+        if node.get("class_type") in SAVERS:
             node["inputs"]["filename_prefix"] = prefix
     return g
+
+
+def edit_graph(template, prompt, seed, images, prefix):
+    """An edit graph with {{image_1}}..{{image_N}} LoadImage nodes: fill the given ComfyUI image names and drop the
+    LoadImage nodes (and the encoder inputs that use them) for images that were not given."""
+    g = template_graph(template, prompt, seed, 0, 0, prefix, **{f"image_{i + 1}": n for i, n in enumerate(images)})
+    unused = [k for k, n in g.items() if n.get("class_type") == "LoadImage"
+              and isinstance(n["inputs"].get("image"), str) and n["inputs"]["image"].startswith("{{")]
+    for k in unused:
+        g.pop(k)
+        for n in g.values():
+            for name in [i for i, v in n["inputs"].items() if isinstance(v, list) and v and v[0] == k]:
+                del n["inputs"][name]
+    return g
+
+
+def inpaint_graph(template, prompt, seed, image, mask, denoise, prefix):
+    """Turn a text-to-image graph into img2img: the empty latent becomes the encoded `image` (a ComfyUI image name),
+    masked by `mask` when given (an image whose transparent pixels mark the area to repaint; LoadImage turns
+    transparency into mask = 1), and the sampler starts at `denoise`."""
+    g = template_graph(template, prompt, seed, 0, 0, prefix)
+    empty = next((k for k, n in g.items() if n["class_type"].startswith("Empty") and "Latent" in n["class_type"]), None)
+    vae = next((k for k, n in g.items() if n["class_type"] == "VAELoader"), None)
+    samplers = [n for n in g.values() if n["class_type"] in ("KSampler", "KSamplerAdvanced")]
+    if not (empty and vae and samplers):
+        raise ValueError("this graph cannot inpaint (needs an Empty...Latent node, a VAELoader and a KSampler)")
+    g["src"] = {"class_type": "LoadImage", "inputs": {"image": image}}
+    latent = ["enc", 0]
+    g["enc"] = {"class_type": "VAEEncode", "inputs": {"pixels": ["src", 0], "vae": [vae, 0]}}
+    if mask:
+        g["msk"] = {"class_type": "LoadImage", "inputs": {"image": mask}}
+        g["noise_mask"] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": ["enc", 0], "mask": ["msk", 1]}}
+        latent = ["noise_mask", 0]
+    for n in g.values():
+        for k, v in n["inputs"].items():
+            if isinstance(v, list) and v and v[0] == empty:
+                n["inputs"][k] = latent
+    g.pop(empty)
+    for n in samplers:
+        n["inputs"]["denoise"] = denoise
+    return g
+
+
+def composite_graph(original, edited, mask, prefix):
+    """Paste `edited` onto `original` only where `mask` is transparent (soft edges kept), so the rest of the frame
+    stays pixel-identical. All three are ComfyUI image names; the edit is scaled to the original's size."""
+    return {
+        "o": {"class_type": "LoadImage", "inputs": {"image": original}},
+        "e": {"class_type": "LoadImage", "inputs": {"image": edited}},
+        "m": {"class_type": "LoadImage", "inputs": {"image": mask}},
+        "c": {"class_type": "ImageCompositeMasked", "inputs": {"destination": ["o", 0], "source": ["e", 0], "x": 0, "y": 0,
+                                                             "resize_source": True, "mask": ["m", 1]}},
+        "s": {"class_type": "SaveImage", "inputs": {"images": ["c", 0], "filename_prefix": prefix}},
+    }
 
 
 class Comfy:
@@ -124,6 +162,19 @@ class Comfy:
                                      headers={"Content-Type": "application/json"} if data is not None else {})
         with urllib.request.urlopen(req, timeout=60) as r:
             return r.read()
+
+    def upload(self, data, name):
+        """Put image bytes into ComfyUI's input folder (subfolder storyboard/); returns the LoadImage name."""
+        b = uuid.uuid4().hex
+        body = (f'--{b}\r\nContent-Disposition: form-data; name="subfolder"\r\n\r\nstoryboard\r\n'
+                f'--{b}\r\nContent-Disposition: form-data; name="overwrite"\r\n\r\ntrue\r\n'
+                f'--{b}\r\nContent-Disposition: form-data; name="image"; filename="{name}"\r\n'
+                f"Content-Type: image/png\r\n\r\n").encode() + data + f"\r\n--{b}--\r\n".encode()
+        req = urllib.request.Request(self.url + "/upload/image", data=body,
+                                     headers={"Content-Type": f"multipart/form-data; boundary={b}"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            d = json.loads(r.read())
+        return f"{d['subfolder']}/{d['name']}" if d.get("subfolder") else d["name"]
 
     def run_image(self, graph):
         """Queue a graph, wait for it, return the bytes of its first output image."""

@@ -1,7 +1,8 @@
 """Frame models: which image model makes a shot's start frame, and whether it can run right now.
 
-A board has a default `frame_model`; any shot can set its own (for example ten cheap local frames to find the feel,
-then the picked shots again on a cloud model). Built-in models are below. More can be added in a JSON file named by
+A board has a default `frame_model`; any shot can set its own. The models form a ladder from cheap to expensive
+(LADDER): start on the local MOSS and Qwen models to find the feel, move a shot up to GPT flare when the local frames
+are not good enough, and to sunburst last. Built-in models are below. More can be added in a JSON file named by
 STORYBOARD_MODELS ({id: entry}, same fields; a local `graph` path is relative to that file).
 
   local  an API-format ComfyUI graph with {{prompt}} {{seed}} {{width}} {{height}} placeholders. It is available when
@@ -9,6 +10,10 @@ STORYBOARD_MODELS ({id: entry}, same fields; a local `graph` path is relative to
   cloud  a paid image API. It is available when its key's environment variable is set (the key itself is never stored
          in a board or a file). Every frame on a cloud model costs money: the page shows the estimate before it runs,
          and the frame's .json records the measured cost.
+
+Revising a frame (annotate it, send it back) works on every model, in one of two ways (`revise`):
+  edit     the model reads the frame (and the annotated copy) as reference images: Qwen-Image 2.1 (`edit_graph`), GPT.
+  inpaint  text-to-image models repaint the marked areas of the frame (img2img with a latent noise mask): MOSS.
 """
 import base64
 import json
@@ -16,26 +21,30 @@ import os
 import time
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 
 GRAPHS = Path(__file__).resolve().parent / "graphs"
-DEFAULT = "zimage"
+DEFAULT = "moss-dmd"
+RETIRED = {"zimage": "Z-Image Turbo was removed (2026-11-11): its frames were not usable"}
 
 BUILTIN = {
-    "zimage": {"label": "Z-Image Turbo", "kind": "local", "graph": "zimage",
-               "note": "fast (a few seconds), planning sketches and rough photos"},
-    "qwen21": {"label": "Qwen-Image 2.1", "kind": "local", "graph": "qwen21_t2i.api.json",
-               "note": "local photo frames, 25 steps"},
-    "moss": {"label": "MOSS-Image", "kind": "local", "graph": "moss_t2i.api.json",
-             "note": "local, strongest at lettering (signs, posters)"},
-    "moss-dmd": {"label": "MOSS-Image 8-step DMD", "kind": "local", "graph": "moss_dmd_t2i.api.json",
-                 "note": "local, ~3 s; lodestones DMD LoRA on MOSS SFT; weaker lettering"},
+    "moss-dmd": {"label": "MOSS-Image 8-step DMD", "kind": "local", "graph": "moss_dmd_t2i.api.json", "revise": "inpaint",
+                 "note": "local, ~3 s; first passes (8-step DMD merged into the int8 weights)"},
+    "moss": {"label": "MOSS-Image", "kind": "local", "graph": "moss_t2i.api.json", "revise": "inpaint",
+             "note": "local, ~15 s; strongest local model at lettering (signs, posters)"},
+    "qwen21": {"label": "Qwen-Image 2.1", "kind": "local", "graph": "qwen21_t2i.api.json", "revise": "edit",
+               "edit_graph": "qwen21_edit.api.json",
+               "note": "local, ~10 s; best identity from references, follows edit instructions loosely"},
     "gpt-flare": {"label": "GPT image 2.6 flare", "kind": "cloud", "provider": "openai", "model": "gpt-image-2.6-flare",
-                  "env": "OPENAI_API_KEY", "usd_per_image": 0.05, "note": "paid, fast comps"},
+                  "env": "OPENAI_API_KEY", "usd_per_image": 0.05, "revise": "edit",
+                  "note": "paid, ~12 s; when the local frames are not good enough"},
     "gpt-sunburst": {"label": "GPT image 2.6 sunburst", "kind": "cloud", "provider": "openai",
-                     "model": "gpt-image-2.6-sunburst", "env": "OPENAI_API_KEY", "usd_per_image": 0.05,
-                     "note": "paid, final quality"},
+                     "model": "gpt-image-2.6-sunburst", "env": "OPENAI_API_KEY", "usd_per_image": 0.05, "revise": "edit",
+                     "note": "paid, ~40 s; last step when flare is not good enough"},
 }
+# cheap to expensive: the page's "next model up" button follows this order
+LADDER = ["moss-dmd", "moss", "qwen21", "gpt-flare", "gpt-sunburst"]
 # OpenAI image pricing per token (input text, input image, output image), USD; output tokens dominate.
 OPENAI_RATES = (5e-6, 8e-6, 30e-6)
 
@@ -52,27 +61,26 @@ def registry():
         base = Path(extra).resolve().parent
         for k, v in json.loads(Path(extra).read_text(encoding="utf-8")).items():
             v = dict(v)
-            if v.get("kind") == "local" and v.get("graph") and v["graph"] != "zimage":
-                v["graph"] = str(base / v["graph"])
+            for g in ("graph", "edit_graph"):
+                if v.get("kind") == "local" and v.get(g):
+                    v[g] = str(base / v[g])
             reg[k] = v
     return reg
 
 
-def graph_template(entry):
-    """The entry's API graph (None for the built-in Z-Image graph, which frames.zimage_graph builds)."""
-    g = entry.get("graph")
-    if g in (None, "zimage"):
+def graph_template(entry, key="graph"):
+    """The entry's API graph (`graph` for text-to-image, `edit_graph` for reference edits); None if it has none."""
+    g = entry.get(key)
+    if not g:
         return None
     p = Path(g) if Path(g).is_absolute() else GRAPHS / g
     return json.loads(p.read_text(encoding="utf-8"))
 
 
 def required_files(template):
-    from .frames import ZIMAGE_MODELS
-    if template is None:
-        return {("UNETLoader", "unet_name"): ZIMAGE_MODELS["unet"], ("CLIPLoader", "clip_name"): ZIMAGE_MODELS["clip"],
-                ("VAELoader", "vae_name"): ZIMAGE_MODELS["vae"]}
     out = {}
+    if template is None:
+        return out
     for node in template.values():
         keys = LOADERS.get(node.get("class_type"))
         for k in ([keys] if isinstance(keys, str) else keys or []):
@@ -99,8 +107,10 @@ class Checker:
         if entry.get("kind") == "cloud":
             env = entry.get("env", "")
             return (True, "") if env and os.environ.get(env) else (False, f"set {env} to use it (paid)")
+        if not entry.get("graph"):
+            return False, "no graph"
         try:
-            files = required_files(graph_template(entry))
+            files = {**required_files(graph_template(entry)), **required_files(graph_template(entry, "edit_graph"))}
         except (OSError, ValueError) as e:
             return False, f"graph unreadable: {e}"
         try:
@@ -117,7 +127,10 @@ class Checker:
             ok, why = self.check(k, v, info)
             out.append({"id": k, "label": v.get("label", k), "kind": v.get("kind"), "note": v.get("note", ""),
                         "usd_per_image": v.get("usd_per_image", 0) if v.get("kind") == "cloud" else 0,
+                        "revise": v.get("revise", "inpaint" if v.get("kind") == "local" else "edit"),
+                        "rank": LADDER.index(k) if k in LADDER else len(LADDER),
                         "available": ok, "reason": why})
+        out.sort(key=lambda m: m["rank"])
         self._cache, self._at = out, time.time()
         return out
 
@@ -126,24 +139,56 @@ class Checker:
         by_id = {m["id"]: m for m in self.all()}
         for k in model_ids:
             if k not in by_id:
-                raise ValueError(f"unknown frame model {k!r}")
+                raise ValueError(RETIRED.get(k) or f"unknown frame model {k!r}")
             if not by_id[k]["available"]:
                 raise ValueError(f"{by_id[k]['label']} is not available: {by_id[k]['reason']}")
 
 
 def shot_model(board, shot, override=None):
-    return override or shot.get("frame_model") or board.get("frame_model") or DEFAULT
+    """override, then the shot's model, then the board's, then DEFAULT; a retired model falls through to the next."""
+    for m in (override, shot.get("frame_model"), board.get("frame_model")):
+        if m and m not in RETIRED:
+            return m
+    return DEFAULT
 
 
-def openai_image(entry, prompt, width, height, timeout=900):
-    """Text-to-image on the OpenAI Images API. Returns (png bytes, seconds, cost_usd)."""
+def next_up(model_id):
+    """The next model on the ladder (None at the top or for a model that is not on it)."""
+    i = LADDER.index(model_id) if model_id in LADDER else -1
+    return LADDER[i + 1] if 0 <= i < len(LADDER) - 1 else None
+
+
+def _multipart(fields, files):
+    """multipart/form-data body (stdlib only). files: [(field, filename, bytes, content type)]."""
+    b = uuid.uuid4().hex
+    out = []
+    for k, v in fields.items():
+        out.append(f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
+    for k, name, data, ctype in files:
+        out.append(f'--{b}\r\nContent-Disposition: form-data; name="{k}"; filename="{name}"\r\n'
+                   f"Content-Type: {ctype}\r\n\r\n".encode() + data + b"\r\n")
+    out.append(f"--{b}--\r\n".encode())
+    return b"".join(out), f"multipart/form-data; boundary={b}"
+
+
+def openai_image(entry, prompt, width, height, refs=(), mask=None, timeout=900):
+    """OpenAI Images API: text-to-image, or an edit when `refs` (PNG bytes, the edited image first) are given; `mask`
+    (PNG bytes, transparent where the image may change) applies to the first ref. Returns (png, seconds, cost_usd)."""
     key = os.environ.get(entry["env"])
     if not key:
         raise RuntimeError(f"{entry['env']} is not set")
-    body = json.dumps({"model": entry["model"], "prompt": prompt, "size": f"{width}x{height}", "quality": "high",
-                       "n": 1}).encode()
-    req = urllib.request.Request("https://api.openai.com/v1/images/generations", data=body,
-                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    fields = {"model": entry["model"], "prompt": prompt, "size": f"{width}x{height}", "quality": "high", "n": 1}
+    head = {"Authorization": f"Bearer {key}"}
+    if refs:
+        files = [("image[]", f"ref{i}.png", r, "image/png") for i, r in enumerate(refs)]
+        if mask:
+            files.append(("mask", "mask.png", mask, "image/png"))
+        body, ctype = _multipart(fields, files)
+        url = "https://api.openai.com/v1/images/edits"
+    else:
+        body, ctype = json.dumps(fields).encode(), "application/json"
+        url = "https://api.openai.com/v1/images/generations"
+    req = urllib.request.Request(url, data=body, headers={**head, "Content-Type": ctype})
     t0 = time.time()
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:

@@ -2,7 +2,7 @@
  "1": {
   "class_type": "UNETLoader",
   "inputs": {
-   "unet_name": "moss_image_sft_int8_convrot.safetensors",
+   "unet_name": "moss_image_sft_8stepdmd_int8_convrot.safetensors",
    "weight_dtype": "default"
   }
  },
@@ -52,7 +52,7 @@
   "class_type": "KSampler",
   "inputs": {
    "model": [
-    "10",
+    "1",
     0
    ],
    "positive": [
@@ -96,17 +96,6 @@
     0
    ],
    "filename_prefix": "storyboards/frame"
-  }
- },
- "10": {
-  "class_type": "LoraLoaderModelOnly",
-  "inputs": {
-   "model": [
-    "1",
-    0
-   ],
-   "lora_name": "moss_image_sft_8step_dmd_lora.safetensors",
-   "strength_model": 1.0
   }
  }
 }
