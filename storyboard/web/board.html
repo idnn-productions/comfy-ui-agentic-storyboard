@@ -528,9 +528,10 @@ function renderShotPanel() {
     <div class="slots"><div class="slot" data-slot="start" style="${s.start_frame ? `background-image:url('${fileUrl(s.start_frame)}')` : ""}">start frame</div>
       <div class="slot" data-slot="end" style="${s.end_frame ? `background-image:url('${fileUrl(s.end_frame)}')` : ""}">end frame</div></div>
     <div class="row">
-      <button id="genFrame" title="generate this shot's start frame with ComfyUI">Generate frame (${esc(B.frame_style === "photo" ? "photo" : "sketch")})</button>
+      <button id="genFrame" title="generate this shot's start frame">Generate frame (${esc(B.frame_style === "photo" ? "photo" : "sketch")}, ${esc((modelOf(shotModel(s)) || {}).label || shotModel(s))})</button>
       ${SERVER.render ? `<button id="renderShot" title="${s.workflow ? "render this shot with " + esc(s.workflow) : "set a workflow first"}"${s.workflow ? "" : " disabled"}>Render shot</button>`
         : `<button disabled title="the server has no render command (STORYBOARD_RENDER_CMD)">Render shot</button>`}</div>
+    <label>Frame model<select data-k="frame_model">${modelOptions(s.frame_model || "", true)}</select></label>
     <div id="jobLine" class="meta" style="color:var(--dim);font-size:11px"></div>
     ${field(s, "request", "Request for the agent (“new frame, lower angle”, “split in two”, “generate the line”)", "area", 2)}
     <div class="row">${field(s, "section", B.kind === "music" ? "Section" : "Scene")}${field(s, "location", "Location")}</div>
@@ -575,7 +576,7 @@ function renderShotPanel() {
     if (k === "id" && (!v || B.shots.some((o, j) => j !== sel && o.id === v))) { el.style.borderColor = "var(--bad)"; return; }
     el.style.borderColor = "";
     if (v === "" || (Array.isArray(v) && !v.length)) delete s[k]; else s[k] = v;
-    touch(); refreshCard(sel); if (k === "request") renderHeader();
+    touch(); refreshCard(sel); if (k === "request") renderHeader(); if (k === "frame_model") renderSide();
   });
   ed.querySelectorAll("[data-p]").forEach(el => el.onchange = () => {
     const k = el.dataset.p;
@@ -614,7 +615,7 @@ function renderShotPanel() {
   $("dup").onclick = duplicate; $("del").onclick = del; $("addAfter").onclick = () => addShot(sel + 1);
   $("split").onclick = split;
   $("clearFrames").onclick = () => { delete s.start_frame; delete s.end_frame; touch(); renderAll(); };
-  $("genFrame").onclick = () => startJob({action: "frames", shots: [s.id]});
+  $("genFrame").onclick = e => paidGuard(e.target, [s], () => startJob({action: "frames", shots: [s.id]}));
   if ($("renderShot")) $("renderShot").onclick = () => {
     if (!["approved", "rendered", "picked"].includes(s.status || "draft")) {
       showJobLine(`Render needs an approved shot: set ${s.id} to approved first.`); return;
@@ -643,7 +644,8 @@ function renderBoardPanel() {
     <div class="row"><label>Kind<select data-b="kind"><option value="story"${B.kind !== "music" ? " selected" : ""}>story / drama</option>
         <option value="music"${B.kind === "music" ? " selected" : ""}>music video</option></select></label>
       <label>Frame style<select data-b="frame_style"><option value="sketch"${B.frame_style !== "photo" ? " selected" : ""}>sketch (fast, for planning)</option>
-        <option value="photo"${B.frame_style === "photo" ? " selected" : ""}>photo (for rendering)</option></select></label></div>
+        <option value="photo"${B.frame_style === "photo" ? " selected" : ""}>photo (for rendering)</option></select></label>
+      <label>Frame model (default)<select data-b="frame_model">${modelOptions(boardModel(), false)}</select></label></div>
     <label>Director's notes (the story, tone, what matters; the agent drafts shots from this)
       <textarea data-b="brief" rows="9">${esc(B.brief || "")}</textarea></label>
     ${field(B, "request", "Request for the agent (board level)", "area", 2).replace('data-k="request"', 'data-b="request"')}
@@ -672,7 +674,7 @@ function renderBoardPanel() {
     touch(); renderHeader(); if (k === "kind") renderSide();
   });
   ed.querySelectorAll('[data-k="notes"]').forEach(el => el.oninput = () => { B.notes = el.value; touch(); });
-  $("genMissing").onclick = () => startJob({action: "frames", missing: true});
+  $("genMissing").onclick = e => paidGuard(e.target, B.shots.filter(x => !x.start_frame), () => startJob({action: "frames", missing: true}));
   ed.querySelectorAll("[data-q]").forEach(b => b.onclick = () => {
     B.request = B.request ? B.request + "\n" + b.dataset.q : b.dataset.q; touch(); renderHeader(); renderSide();
   });
@@ -853,6 +855,35 @@ function showJobLine(msg) {
   el.textContent = `${what}: ${j.status}${live.length > 1 ? ` (+${live.length - 1} queued)` : ""}${tail ? " — " + tail : ""}`;
 }
 
+// ================= frame models
+let MODELS = [];
+async function loadModels() {
+  try { MODELS = (await (await fetch("/api/models")).json()).models || []; } catch (e) { MODELS = []; }
+}
+const modelOf = id => MODELS.find(m => m.id === id);
+const boardModel = () => B.frame_model || "zimage";
+const shotModel = s => s.frame_model || boardModel();
+function modelOptions(cur, withDefault) {
+  const d = modelOf(boardModel());
+  let h = withDefault ? `<option value=""${cur ? "" : " selected"}>board default (${esc(d ? d.label : boardModel())})</option>` : "";
+  for (const m of MODELS) {
+    const tag = m.kind === "cloud" ? ` · paid ~$${m.usd_per_image.toFixed(2)}` : " · local";
+    h += `<option value="${esc(m.id)}"${m.id === cur ? " selected" : ""}${m.available ? "" : " disabled"}` +
+         ` title="${esc(m.available ? m.note : m.reason)}">${esc(m.label + tag + (m.available ? "" : " (not available)"))}</option>`;
+  }
+  return h;
+}
+// Paid frames need a second click within 4 s; the button shows the estimate first.
+function paidGuard(btn, shots, run) {
+  const paid = shots.map(shotModel).map(modelOf).filter(m => m && m.kind === "cloud");
+  if (!paid.length || btn.dataset.armed) { delete btn.dataset.armed; run(); return; }
+  const est = paid.reduce((a, m) => a + m.usd_per_image, 0);
+  const label = btn.textContent;
+  btn.dataset.armed = "1"; btn.textContent = `${paid.length} paid frame(s), ~$${est.toFixed(2)}: click again`;
+  btn.style.borderColor = "var(--bad)";
+  setTimeout(() => { delete btn.dataset.armed; btn.textContent = label; btn.style.borderColor = ""; }, 4000);
+}
+
 // ================= route
 // Older servers have no /api/server (404) and are stale by definition: they predate this check.
 let SERVER = {render: false};
@@ -865,7 +896,7 @@ fetch("/api/server").then(r => r.ok ? r.json() : {stale: true}).then(j => {
   document.body.prepend(bar);
 }).catch(() => {});
 NAME = new URLSearchParams(location.search).get("b") || "";
-if (NAME) { $("boardView").classList.remove("hidden"); load().then(poll); } else home();
+if (NAME) { $("boardView").classList.remove("hidden"); loadModels().then(load).then(poll); setInterval(loadModels, 60000); } else home();
 </script>
 </body>
 </html>

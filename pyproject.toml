@@ -21,4 +21,4 @@ storyboard = "storyboard.cli:main"
 packages = ["storyboard"]
 
 [tool.setuptools.package-data]
-storyboard = ["web/*.html"]
+storyboard = ["web/*.html", "graphs/*.json"]

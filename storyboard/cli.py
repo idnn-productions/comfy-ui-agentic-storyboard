@@ -6,7 +6,8 @@
   storyboard list <name> [--json]                       shot table (or the board JSON)
   storyboard requests [<name>] [--json]                 open requests from the board(s) for the agent
   storyboard done <name> [<shot_id>]                    clear a request once handled
-  storyboard frames <name> [--shots A,B] [--style sketch|photo] [--missing] [--seed N] [--workflow api.json]
+  storyboard frames <name> [--shots A,B] [--style sketch|photo] [--missing] [--seed N] [--model ID] [--workflow api.json]
+  storyboard models          frame models and whether each can run now
   storyboard export <name> [--approved | --shots A,B] [--dest DIR]
   storyboard rename <old> <new> | duplicate <name> <new> | delete <name>
 
@@ -25,6 +26,7 @@ from pathlib import Path
 
 from . import board as bd
 from . import frames as fr
+from . import models as fm
 from .server import serve
 
 
@@ -90,6 +92,14 @@ def cmd_frames(cfg, a):
     w, h = fr.frame_size(b, style)
     comfy = fr.Comfy(cfg.comfy_url)
     todo = [s for s in b["shots"] if (want is None or s["id"] in want) and not (a.missing and s.get("start_frame"))]
+    reg = fm.registry()
+    picks = {s["id"]: fm.shot_model(b, s, a.model) for s in todo} if not template else {}
+    if picks:
+        fm.Checker(cfg.comfy_url).require(sorted(set(picks.values())))
+        paid = [k for k in picks.values() if reg[k].get("kind") == "cloud"]
+        if paid:
+            est = sum(reg[k].get("usd_per_image", 0) for k in paid)
+            print(f"{len(paid)} frame(s) on paid models, estimated ${est:.2f}", flush=True)
     made = {}
     out_dir = cfg.board_dir(a.name) / "frames"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -97,17 +107,26 @@ def cmd_frames(cfg, a):
         prompt = fr.frame_prompt(b, s, style)
         seed = a.seed if a.seed is not None else fr.shot_seed(s["id"])
         prefix = f"storyboards/{a.name}/{s['id']}"
-        graph = (fr.template_graph(template, prompt, seed, w, h, prefix) if template
-                 else fr.zimage_graph(prompt, seed, w, h, prefix, models))
-        data, secs = comfy.run_image(graph)
+        mid = picks.get(s["id"])
+        entry = reg.get(mid, {})
+        cost = 0
+        if entry.get("kind") == "cloud":
+            data, secs, cost = fm.openai_image(entry, prompt, w, h)
+        else:
+            t = template or fm.graph_template(entry)
+            graph = (fr.template_graph(t, prompt, seed, w, h, prefix) if t
+                     else fr.zimage_graph(prompt, seed, w, h, prefix, models))
+            data, secs = comfy.run_image(graph)
         out = (out_dir / f"{s['id']}_{style}_{time.strftime('%Y%m%d_%H%M%S')}.png").resolve()
         if not out.is_relative_to(out_dir.resolve()):
             raise ValueError(f"shot id {s['id']!r} would write outside {out_dir}")
         out.write_bytes(data)
         out.with_suffix(".json").write_text(json.dumps({"prompt": prompt, "seed": seed, "size": [w, h],
+                                                        "model": mid or a.workflow, "cost_usd": cost,
                                                         "seconds": round(secs, 1)}, indent=1), encoding="utf-8")
         made[s["id"]] = cfg.rel(out)
-        print(f"[{i + 1}/{len(todo)}] {s['id']}: {out.name} ({secs:.0f}s)", flush=True)
+        print(f"[{i + 1}/{len(todo)}] {s['id']}: {out.name} ({mid or 'workflow'}, {secs:.0f}s"
+              + (f", ${cost:.3f}" if cost else "") + ")", flush=True)
     b, _ = bd.load(cfg, a.name)  # re-read: the board may have been edited while frames rendered
     for s in b["shots"]:
         if s["id"] in made:
@@ -116,6 +135,17 @@ def cmd_frames(cfg, a):
                 s["status"] = "frames"
     bd.save(cfg, a.name, b)
     print(len(made), "frame(s) set on the board")
+
+
+def cmd_models(cfg, a):
+    ms = fm.Checker(cfg.comfy_url).all()
+    if a.json:
+        print(json.dumps(ms, indent=1))
+        return
+    for m in ms:
+        cost = f", ~${m['usd_per_image']:.2f}/frame" if m["usd_per_image"] else ""
+        print(f"{m['id']:14} {m['kind']:5} {'yes' if m['available'] else 'no ':3}  {m['label']}{cost}"
+              + (f"  ({m['reason']})" if m["reason"] else ""))
 
 
 def cmd_export(cfg, a):
@@ -156,7 +186,8 @@ def cmd_export(cfg, a):
             subprocess.run(["ffmpeg", "-v", "error", "-y", *cut, "-i", str(src), "-ar", "48000", "-ac", "2",
                             str(d / "audio.wav")], check=True)
         meta = {k: s.get(k) for k in ("id", "section", "duration", "dialogue", "speaker", "lyric", "camera",
-                                      "characters", "backend", "seeds", "workflow", "beats") if s.get(k) not in (None, "", [])}
+                                      "characters", "backend", "seeds", "workflow", "beats",
+                                      "frame_model") if s.get(k) not in (None, "", [])}
         meta.update(board=a.name, start=round(t0, 3), end=round(t1, 3), width=b.get("width"),
                     height=b.get("height"), fps=b.get("fps", 24), lane=s.get("lane", "A"), motion=bd.shot_motion(s),
                     landing_pose=bool(s.get("landing_pose", False)))
@@ -228,11 +259,17 @@ def main(argv=None):
     p.add_argument("--style", choices=["sketch", "photo"])
     p.add_argument("--missing", action="store_true", help="only shots without a start frame")
     p.add_argument("--seed", type=int)
-    p.add_argument("--workflow", help="API-format text-to-image workflow with {{prompt}} {{seed}} {{width}} {{height}}")
+    p.add_argument("--model", help="frame model id for every shot (default: the shot's frame_model, then the board's)")
+    p.add_argument("--workflow", help="API-format text-to-image workflow with {{prompt}} {{seed}} {{width}} {{height}}"
+                                      " (overrides the frame models)")
     p.add_argument("--unet")
     p.add_argument("--clip")
     p.add_argument("--vae")
     p.set_defaults(fn=cmd_frames)
+
+    p = sub.add_parser("models", help="frame models and whether each can run now")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_models)
 
     p = sub.add_parser("export", help="write shot folders for rendering")
     p.add_argument("name")

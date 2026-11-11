@@ -21,6 +21,7 @@ import uuid
 from collections import deque
 
 from . import board as bd
+from . import models as fm
 
 SEEDS_RE = re.compile(r"^\d{1,9}(,\d{1,9}){0,7}$")
 MAX_JOBS_KEPT = 50
@@ -29,6 +30,7 @@ MAX_JOBS_KEPT = 50
 class Jobs:
     def __init__(self, cfg, render_cmd=None):
         self.cfg = cfg
+        self.models = fm.Checker(cfg.comfy_url)
         self.render_cmd = render_cmd if render_cmd is not None else os.environ.get("STORYBOARD_RENDER_CMD", "")
         self.q = queue.Queue()
         self.jobs = {}
@@ -62,6 +64,9 @@ class Jobs:
         if action == "frames":
             if style not in (None, "sketch", "photo"):
                 raise ValueError("style must be sketch or photo")
+            b, _ = bd.load(self.cfg, board)
+            todo = [x for x in b["shots"] if (not shots or x["id"] in shots) and not (missing and x.get("start_frame"))]
+            self.models.require(sorted({fm.shot_model(b, x) for x in todo}))  # refuse before queueing
             cmd = self._frames_cmd(board, shots, style, missing)
         elif action == "render":
             if not self.render_cmd:
