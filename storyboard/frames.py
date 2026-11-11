@@ -60,7 +60,7 @@ def frame_prompt(board, shot, style):
             base = (f"{framing} view. " if framing else "") + action + (f" ({people})" if people else "")
     if style == "sketch":
         return SKETCH + base + NO_TEXT
-    return f"{base} {board.get('look') or ''}".strip()
+    return f"{base} {board.get('look') or ''}".strip() + NO_TEXT
 
 
 def frame_size(board, style):

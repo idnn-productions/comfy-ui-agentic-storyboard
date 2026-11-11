@@ -177,6 +177,12 @@ class FrameTests(unittest.TestCase):
         self.assertIn("a man in his 30s's key", p)
         self.assertIn("Close-up low angle view", p)
 
+    def test_photo_prompt_bans_text_and_keeps_look(self):
+        board = {"look": "Shot on 35mm film.", "characters": []}
+        p = fr.frame_prompt(board, {"id": "SH01", "action": "An empty street at dawn."}, "photo")
+        self.assertIn("Shot on 35mm film.", p)
+        self.assertTrue(p.endswith(fr.NO_TEXT))
+
     def test_template_placeholders(self):
         t = {"1": {"class_type": "X", "inputs": {"text": "{{prompt}}", "seed": "{{seed}}", "w": "{{width}}"}},
              "2": {"class_type": "SaveImage", "inputs": {"filename_prefix": "x"}}}
