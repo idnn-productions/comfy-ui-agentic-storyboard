@@ -6,6 +6,7 @@ Routes
   GET  /api/board?b=<name>        {name, version, board, statuses}
   GET  /api/version?b=<name>      {version}  (the page polls this to pick up edits made on disk, e.g. by an agent)
   GET  /api/server                {stale, render}  (stale: package code changed after start; render: a render command is set)
+  GET  /api/models               frame models: [{id, label, kind, note, usd_per_image, available, reason}]
   GET  /api/jobs?b=<name>         jobs for the board (frames / render), newest last, with their last log lines
   POST /api/jobs                  {action: frames | render, b, shots: [ids], style?, missing?, seeds?} -> job
   GET  /file?p=<root-relative>    any file under the root, with HTTP Range support (audio/video seeking)
@@ -92,6 +93,8 @@ def make_handler(cfg, jobs=None):
                 return self._send(200, {"stale": code_stamp() != started, "render": bool(jobs.render_cmd)})
             if u.path == "/api/jobs":
                 return self._send(200, {"jobs": jobs.list(q.get("b", [None])[0])})
+            if u.path == "/api/models":
+                return self._send(200, {"models": jobs.models.all()})
             if u.path == "/api/boards":
                 return self._send(200, {"boards": [s for s in (bd.summary(cfg, n) for n in bd.names(cfg)) if s]})
             if u.path == "/api/board":

@@ -98,6 +98,27 @@ The default graph is Z-Image Turbo text-to-image (`z_image_turbo_bf16.safetensor
 ComfyUI with **Export (API)**, put `{{prompt}}`, `{{seed}}`, `{{width}}`, `{{height}}` in its widget values, and pass
 `--workflow that.json`.
 
+### Frame models per shot
+Each shot can pick the model that makes its frame (**Frame model** in the shot panel), and the board sets the default
+(**Frame model (default)** in the board panel). A typical loop: ten cheap local frames to find the feel, then only the
+picked shots again on a paid model. Built in:
+
+| id | model | where | file(s) checked |
+|---|---|---|---|
+| `zimage` | Z-Image Turbo, 8 steps (default) | local, ComfyUI | `z_image_turbo_bf16`, `qwen_3_4b`, `ae` |
+| `qwen21` | Qwen-Image 2.1, 25 steps | local, ComfyUI | `qwen_image_2.1_int8_convrot`, `qwen3vl_8b_int8_convrot`, `qwen_image_2.1_vae_bf16` |
+| `moss` | MOSS-Image, 25 steps (lettering) | local, ComfyUI (v0.42.0+) | `moss_image_sft_int8_convrot`, `qwen3.5_9b_w4a8_gptq`, `flux2-vae_small` |
+| `moss-dmd` | MOSS-Image + 8-step DMD LoRA ([lodestones/MOSS-Image-SFT-8-steps-dmd](https://huggingface.co/lodestones/MOSS-Image-SFT-8-steps-dmd) `lora.safetensors`, saved as `moss_image_sft_8step_dmd_lora.safetensors`) | local, ComfyUI | the MOSS files + that LoRA |
+| `gpt-flare`, `gpt-sunburst` | GPT image 2.6 | OpenAI API, paid | `OPENAI_API_KEY` set |
+
+Before anything runs, the server checks that each model can run now: a local model needs ComfyUI up and every file its
+graph loads (asked through ComfyUI's `/object_info`), a cloud model needs its key in the environment (the key is never
+written into a board or a file). Models that can't run are greyed out in the menus with the reason, and a frames job
+that needs one is refused. Paid frames show the estimated cost on the button and need a second click; the measured
+cost goes into the frame's `.json`. `storyboard models` prints the same check, and `storyboard frames --model ID`
+overrides every shot. Add your own models in a JSON file named by `STORYBOARD_MODELS`
+(`{"id": {"label": ..., "kind": "local", "graph": "my_graph.api.json"}}`, graph path relative to that file).
+
 Prompts come from the shot's action, framing (shot size and angle) and character descriptions. Names and lens or
 camera-move words are left out on purpose: image models tend to letter them into the picture. A shot's
 `start_frame_prompt` overrides the generated prompt.
