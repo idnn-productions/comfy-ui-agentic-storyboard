@@ -8,11 +8,12 @@ Routes
   GET  /api/server                {stale, render}  (stale: package code changed after start; render: a render command is set)
   GET  /api/models               frame models: [{id, label, kind, note, usd_per_image, available, reason}]
   GET  /api/jobs?b=<name>         jobs for the board (frames / render), newest last, with their last log lines
-  POST /api/jobs                  {action: frames | render, b, shots: [ids], style?, missing?, seeds?} -> job
+  POST /api/jobs                  {action: frames | revise | render, b, shots: [ids], style?, missing?, count?,
+                                   seeds?, revision?} -> job (revision: see revise.check_request)
   GET  /file?p=<root-relative>    any file under the root, with HTTP Range support (audio/video seeking)
   PUT  /api/board?b=<name>        {version, board} -> 409 if the file changed since that version
   POST /api/boards                {action: create | rename | duplicate | delete, ...}
-  POST /api/upload?b=&shot=&slot=start|end|audio|take&name=   raw body -> {path}
+  POST /api/upload?b=&shot=&slot=start|end|audio|take|reference|annotated|mask&name=   raw body -> {path}
 
 Safety: GETs answer only Host 127.0.0.1/localhost (DNS rebinding); PUT/POST also need the header "X-Storyboard: 1",
 which a cross-site page cannot send without a CORS preflight this server never approves. File reads are confined
@@ -35,7 +36,8 @@ PKG = Path(__file__).resolve().parent
 PAGE = PKG / "web" / "board.html"
 UPLOAD_EXT = {"start": (".png", ".jpg", ".jpeg", ".webp"), "end": (".png", ".jpg", ".jpeg", ".webp"),
               "audio": (".wav", ".mp3", ".flac", ".m4a", ".ogg"), "take": (".mp4", ".webm", ".mov"),
-              "reference": (".mp4", ".webm", ".mov")}
+              "reference": (".mp4", ".webm", ".mov"), "annotated": (".png",), "mask": (".png",)}
+UPLOAD_DIR = {"audio": "audio", "reference": "refs", "take": "takes", "annotated": "revisions", "mask": "revisions"}
 
 
 def code_stamp():
@@ -186,7 +188,8 @@ def make_handler(cfg, jobs=None):
                 body = self._json_body()
                 try:
                     job = jobs.submit(body.get("action"), body.get("b", ""), body.get("shots") or [],
-                                      body.get("style"), bool(body.get("missing")), str(body.get("seeds", "1")))
+                                      body.get("style"), bool(body.get("missing")), str(body.get("seeds", "1")),
+                                      body.get("count", 1), body.get("revision"))
                 except (ValueError, TypeError) as e:
                     return self._send(400, {"error": str(e)})
                 return self._send(200, {"job": job})
@@ -224,7 +227,7 @@ def make_handler(cfg, jobs=None):
             if ext not in UPLOAD_EXT[slot]:
                 return self._send(400, {"error": f"{ext} not allowed for {slot}"})
             data = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-            d = (cfg.board_dir(name) / {"audio": "audio", "reference": "refs", "take": "takes"}.get(slot, "frames")).resolve()
+            d = (cfg.board_dir(name) / UPLOAD_DIR.get(slot, "frames")).resolve()
             d.mkdir(parents=True, exist_ok=True)
             f = (d / f"{shot}_{slot}_{time.strftime('%Y%m%d_%H%M%S')}{ext}").resolve()
             if not f.is_relative_to(d):

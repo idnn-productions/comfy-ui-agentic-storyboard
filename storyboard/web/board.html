@@ -134,6 +134,33 @@ aside { border-left: 1px solid var(--line); background: var(--panel); overflow: 
 .empty { color: var(--dim); padding: 30px; text-align: center; }
 .help { color: var(--dim); font-size: 11px; padding: 0 10px 12px; }
 .err { color: var(--bad); }
+.genrow { display: grid; grid-template-columns: 58px 1fr auto; gap: 6px; }
+.versions { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 3px; }
+.versions .ver { flex: none; width: 74px; aspect-ratio: var(--ar, 16/9); background: #111 center/cover no-repeat;
+  border: 2px solid transparent; border-radius: 4px; cursor: pointer; position: relative; }
+.versions .ver.on { border-color: var(--accent); }
+.versions .ver span { position: absolute; left: 0; right: 0; bottom: 0; font-size: 9px; background: #000b; color: #ddd;
+  padding: 0 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.versions .ver.rev::after { content: "\270E"; position: absolute; right: 2px; top: 0; font-size: 10px; color: var(--accent); }
+.modelrow { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: end; }
+.preview img { cursor: crosshair; }
+/* annotator */
+.an { position: fixed; inset: 0; background: #000e; z-index: 50; display: grid; grid-template-columns: minmax(0, 1fr) 360px; }
+.an-stage { display: flex; align-items: center; justify-content: center; padding: 16px; min-width: 0; min-height: 0; }
+.an-wrap { position: relative; line-height: 0; }
+.an-wrap img { max-width: calc(100vw - 400px); max-height: calc(100vh - 32px); display: block; user-select: none; }
+.an-wrap canvas { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+.an-side { background: var(--panel); border-left: 1px solid var(--line); padding: 12px; overflow: auto; display: grid;
+  gap: 10px; align-content: start; }
+.an-side h3 { margin: 0; font-size: 14px; }
+.an-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.an-tools button.on { background: var(--accent); color: #111; border-color: var(--accent); }
+.an-mark { display: grid; grid-template-columns: 24px 1fr 24px; gap: 6px; align-items: start; }
+.an-mark b { background: #ff2a2a; color: #fff; border-radius: 50%; width: 22px; height: 22px; display: flex;
+  align-items: center; justify-content: center; font-size: 12px; margin-top: 3px; }
+.an-mark textarea, .an-side textarea, .an-side select { width: 100%; padding: 5px 7px; min-height: 0; resize: vertical; }
+.an-side label { display: grid; gap: 3px; color: var(--dim); font-size: 11px; }
+.an-hint { color: var(--dim); font-size: 11px; }
 kbd { background: #2a2d35; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; font-size: 10px; }
 </style>
 </head>
@@ -206,6 +233,26 @@ kbd { background: #2a2d35; border: 1px solid var(--line); border-radius: 3px; pa
       </div>
     </aside>
   </main>
+</div>
+<div class="an hidden" id="an">
+  <div class="an-stage"><div class="an-wrap"><img id="anImg" alt=""><canvas id="anCv"></canvas></div></div>
+  <div class="an-side">
+    <h3 id="anTitle">Annotate</h3>
+    <div class="an-hint">Drag a box around what should change, or draw with the pen. Each mark gets a number and its own note.
+      With marks, only the marked areas change.</div>
+    <div class="an-tools"><button id="anBox" class="on">&#9633; Box</button><button id="anPen">&#9998; Pen</button>
+      <button id="anUndo">Undo</button><button id="anClear">Clear</button></div>
+    <div id="anMarks" style="display:grid;gap:6px"></div>
+    <label>Overall note (whole frame, or anything not tied to a mark)<textarea id="anNote" rows="3"
+      placeholder="e.g. lower camera angle, warmer light"></textarea></label>
+    <div class="row"><label>Model<select id="anModel"></select></label>
+      <label>Takes<select id="anCount"><option>1</option><option>2</option><option>4</option></select></label></div>
+    <div class="an-hint" id="anMode"></div>
+    <label class="check"><input type="checkbox" id="anKeep" checked> keep everything outside the marks pixel-identical</label>
+    <label id="anStrWrap">Repaint strength (local inpaint) <input type="range" id="anStr" min="0.4" max="1" step="0.05" value="0.9"></label>
+    <div class="row"><button id="anCancel">Cancel (Esc)</button><button class="primary" id="anSend">Send for revision</button></div>
+    <div class="err" id="anErr"></div>
+  </div>
 </div>
 <audio id="audio" preload="auto"></audio>
 <audio id="shotAudio" preload="auto"></audio>
@@ -485,6 +532,7 @@ function renderPreview(i, t) {
   }
   const key = inner + cap;
   if (p.dataset.key !== key) { p.innerHTML = inner + (cap ? `<div class="cap">${esc(cap)}</div>` : ""); p.dataset.key = key; }
+  const im = p.querySelector("img"); if (im && !playing) { im.title = "click to annotate and revise"; im.onclick = openAnnotator; }
 }
 
 // ================= side panel
@@ -527,11 +575,16 @@ function renderShotPanel() {
       return `<button data-st="${st}" class="${on ? "on" : ""}" style="${on ? "background:" + STATUS_COLOR(st) : ""}">${st}</button>`; }).join("")}</div>
     <div class="slots"><div class="slot" data-slot="start" style="${s.start_frame ? `background-image:url('${fileUrl(s.start_frame)}')` : ""}">start frame</div>
       <div class="slot" data-slot="end" style="${s.end_frame ? `background-image:url('${fileUrl(s.end_frame)}')` : ""}">end frame</div></div>
+    ${versionStrip(s)}
+    <div class="genrow">
+      <select id="genCount" title="takes to queue, each with its own seed">${[1, 2, 4, 10].map(n => `<option${n === GEN_COUNT ? " selected" : ""}>${n}</option>`).join("")}</select>
+      <button id="genFrame" title="queue new start frames in ComfyUI (or the cloud model); every take is kept as a version">Queue ${GEN_COUNT} on ${esc((modelOf(shotModel(s)) || {}).label || shotModel(s))} (${esc(B.frame_style === "photo" ? "photo" : "sketch")})</button>
+      <button id="annotate" title="draw on the frame and send it back for a revision"${s.start_frame ? "" : " disabled"}>&#9998; Annotate</button></div>
+    <div class="modelrow"><label>Frame model<select data-k="frame_model">${modelOptions(s.frame_model || "", true)}</select></label>
+      ${(() => { const up = nextUp(shotModel(s)); return up ? `<button id="nextUp" title="move this shot one step up the ladder: ${esc(up.label)}">&uarr; ${esc(up.label)}</button>` : ""; })()}</div>
     <div class="row">
-      <button id="genFrame" title="generate this shot's start frame">Generate frame (${esc(B.frame_style === "photo" ? "photo" : "sketch")}, ${esc((modelOf(shotModel(s)) || {}).label || shotModel(s))})</button>
       ${SERVER.render ? `<button id="renderShot" title="${s.workflow ? "render this shot with " + esc(s.workflow) : "set a workflow first"}"${s.workflow ? "" : " disabled"}>Render shot</button>`
         : `<button disabled title="the server has no render command (STORYBOARD_RENDER_CMD)">Render shot</button>`}</div>
-    <label>Frame model<select data-k="frame_model">${modelOptions(s.frame_model || "", true)}</select></label>
     <div id="jobLine" class="meta" style="color:var(--dim);font-size:11px"></div>
     ${field(s, "request", "Request for the agent (“new frame, lower angle”, “split in two”, “generate the line”)", "area", 2)}
     <div class="row">${field(s, "section", B.kind === "music" ? "Section" : "Scene")}${field(s, "location", "Location")}</div>
@@ -615,7 +668,11 @@ function renderShotPanel() {
   $("dup").onclick = duplicate; $("del").onclick = del; $("addAfter").onclick = () => addShot(sel + 1);
   $("split").onclick = split;
   $("clearFrames").onclick = () => { delete s.start_frame; delete s.end_frame; touch(); renderAll(); };
-  $("genFrame").onclick = e => paidGuard(e.target, [s], () => startJob({action: "frames", shots: [s.id]}));
+  $("genCount").onchange = e => { GEN_COUNT = +e.target.value; renderSide(); };
+  $("genFrame").onclick = e => paidGuard(e.target, Array(GEN_COUNT).fill(s), () => startJob({action: "frames", shots: [s.id], count: GEN_COUNT}));
+  $("annotate").onclick = openAnnotator;
+  if ($("nextUp")) $("nextUp").onclick = () => { s.frame_model = nextUp(shotModel(s)).id; touch(); renderSide(); };
+  ed.querySelectorAll("[data-v]").forEach(v => v.onclick = () => { s.start_frame = v.dataset.v; touch(); renderAll(); });
   if ($("renderShot")) $("renderShot").onclick = () => {
     if (!["approved", "rendered", "picked"].includes(s.status || "draft")) {
       showJobLine(`Render needs an approved shot: set ${s.id} to approved first.`); return;
@@ -819,6 +876,7 @@ $("stop").onclick = stop;
 $("addShot").onclick = () => addShot();
 $("zoom").oninput = e => document.documentElement.style.setProperty("--cw", e.target.value + "px");
 document.addEventListener("keydown", e => {
+  if (AN) { if (e.key === "Escape") closeAnnotator(); return; }
   if (!B || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) return;
   if (e.key === "ArrowRight") { select(sel + 1); e.preventDefault(); }
   else if (e.key === "ArrowLeft") { select(sel - 1); e.preventDefault(); }
@@ -850,7 +908,7 @@ function showJobLine(msg) {
   const last = JOBS[JOBS.length - 1];
   const j = live[0] || last;
   if (!j) { el.textContent = ""; return; }
-  const what = `${j.action === "frames" ? "Frames" : "Render"} ${j.shots.length ? j.shots.join(", ") : "(missing)"}`;
+  const what = `${{frames: "Frames", revise: "Revision", render: "Render"}[j.action] || j.action} ${j.shots.length ? j.shots.join(", ") : "(missing)"}`;
   const tail = (j.log || []).slice(-1)[0] || "";
   el.textContent = `${what}: ${j.status}${live.length > 1 ? ` (+${live.length - 1} queued)` : ""}${tail ? " — " + tail : ""}`;
 }
@@ -861,8 +919,20 @@ async function loadModels() {
   try { MODELS = (await (await fetch("/api/models")).json()).models || []; } catch (e) { MODELS = []; }
 }
 const modelOf = id => MODELS.find(m => m.id === id);
-const boardModel = () => B.frame_model || "zimage";
-const shotModel = s => s.frame_model || boardModel();
+const RETIRED = ["zimage"];  // removed models: shots that still name one use the next choice
+const DEFAULT_MODEL = "moss-dmd";
+const boardModel = () => (B.frame_model && !RETIRED.includes(B.frame_model)) ? B.frame_model : DEFAULT_MODEL;
+const shotModel = s => (s.frame_model && !RETIRED.includes(s.frame_model)) ? s.frame_model : boardModel();
+// the server lists models cheap to expensive (local MOSS, Qwen, then GPT flare, sunburst)
+function nextUp(id) { const i = MODELS.findIndex(m => m.id === id); return i >= 0 && MODELS[i + 1] ? MODELS[i + 1] : null; }
+let GEN_COUNT = 1;
+function versionStrip(s) {
+  const vs = (s.versions || []).slice().reverse();
+  if (vs.length < 2) return "";
+  return `<div class="versions" title="every take and revision of the start frame, newest first: click one to use it">` + vs.map(v =>
+    `<div class="ver${v.path === s.start_frame ? " on" : ""}${v.from ? " rev" : ""}" data-v="${esc(v.path)}" title="${esc(((modelOf(v.model) || {}).label || v.model || "uploaded") + (v.note ? " · " + v.note : ""))}"
+      style="background-image:url('${fileUrl(v.path)}')"><span>${esc((modelOf(v.model) || {}).label || v.model || "first")}</span></div>`).join("") + `</div>`;
+}
 function modelOptions(cur, withDefault) {
   const d = modelOf(boardModel());
   let h = withDefault ? `<option value=""${cur ? "" : " selected"}>board default (${esc(d ? d.label : boardModel())})</option>` : "";
@@ -882,6 +952,126 @@ function paidGuard(btn, shots, run) {
   btn.dataset.armed = "1"; btn.textContent = `${paid.length} paid frame(s), ~$${est.toFixed(2)}: click again`;
   btn.style.borderColor = "var(--bad)";
   setTimeout(() => { delete btn.dataset.armed; btn.textContent = label; btn.style.borderColor = ""; }, 4000);
+}
+
+// ================= annotate & revise
+// Marks are kept in 0-1 image coordinates. Sending uploads the frame with the marks drawn on it and a mask
+// (transparent where the marks are, soft edges), then queues a revise job; the request text goes in a file, not a command.
+let AN = null;
+const RED = "#ff2a2a";
+function openAnnotator() {
+  const s = B.shots[sel]; if (!s || !s.start_frame) return;
+  stop();
+  AN = {shot: s.id, src: s.start_frame, marks: [], tool: "box", draft: null};
+  $("anTitle").textContent = `Annotate ${s.id}`; $("anNote").value = ""; $("anErr").textContent = "";
+  const cur = shotModel(s);
+  $("anModel").innerHTML = MODELS.map(m => `<option value="${esc(m.id)}"${m.id === cur ? " selected" : ""}${m.available ? "" : " disabled"}>` +
+    esc(m.label + (m.kind === "cloud" ? ` · paid ~$${m.usd_per_image.toFixed(2)}` : " · local") + (m.available ? "" : " (not available)")) + `</option>`).join("");
+  $("an").classList.remove("hidden");
+  const img = $("anImg"); img.onload = anSize; img.src = fileUrl(AN.src);
+  anTool("box"); anList(); anModeHint();
+}
+function closeAnnotator() { AN = null; $("an").classList.add("hidden"); }
+function anSize() { const img = $("anImg"), cv = $("anCv"); cv.width = img.clientWidth; cv.height = img.clientHeight; anDraw(); }
+window.addEventListener("resize", () => { if (AN) anSize(); });
+function anTool(t) { AN.tool = t; $("anBox").classList.toggle("on", t === "box"); $("anPen").classList.toggle("on", t === "pen"); }
+function bbox(pts) { const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; }
+function drawMarks(ctx, W, H, marks, lw) {
+  ctx.lineWidth = lw; ctx.strokeStyle = RED; ctx.lineJoin = ctx.lineCap = "round";
+  marks.forEach((m, i) => {
+    if (m.type === "pen") { ctx.beginPath(); m.pts.forEach(([x, y], k) => k ? ctx.lineTo(x * W, y * H) : ctx.moveTo(x * W, y * H)); ctx.stroke(); }
+    else ctx.strokeRect(m.box[0] * W, m.box[1] * H, (m.box[2] - m.box[0]) * W, (m.box[3] - m.box[1]) * H);
+    if (m.n === undefined) return;
+    const r = lw * 3.2, cx = Math.max(r, m.box[0] * W), cy = Math.max(r, m.box[1] * H);
+    ctx.fillStyle = RED; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill();
+    ctx.fillStyle = "#fff"; ctx.font = `bold ${Math.round(r * 1.2)}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(String(i + 1), cx, cy + 1);
+  });
+}
+function anDraw() {
+  const cv = $("anCv"), ctx = cv.getContext("2d"); ctx.clearRect(0, 0, cv.width, cv.height);
+  drawMarks(ctx, cv.width, cv.height, AN.marks, 3);
+  if (AN.draft) drawMarks(ctx, cv.width, cv.height, [AN.draft], 2);
+}
+function anPos(e) { const r = $("anCv").getBoundingClientRect();
+  return [Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))]; }
+$("anCv").onpointerdown = e => {
+  if (!AN) return; $("anCv").setPointerCapture(e.pointerId); const p = anPos(e);
+  AN.draft = AN.tool === "pen" ? {type: "pen", pts: [p], box: [...p, ...p]} : {type: "box", start: p, box: [...p, ...p]};
+};
+$("anCv").onpointermove = e => {
+  if (!AN || !AN.draft) return; const p = anPos(e), d = AN.draft;
+  if (d.type === "pen") { d.pts.push(p); d.box = bbox(d.pts); }
+  else d.box = [Math.min(d.start[0], p[0]), Math.min(d.start[1], p[1]), Math.max(d.start[0], p[0]), Math.max(d.start[1], p[1])];
+  anDraw();
+};
+$("anCv").onpointerup = () => {
+  if (!AN || !AN.draft) return; const d = AN.draft; AN.draft = null;
+  if (d.box[2] - d.box[0] < 0.01 && d.box[3] - d.box[1] < 0.01) { anDraw(); return; }
+  if (AN.marks.length >= 12) { $("anErr").textContent = "up to 12 marks"; anDraw(); return; }
+  AN.marks.push({type: d.type, pts: d.pts, box: d.box, text: "", n: AN.marks.length}); anDraw(); anList();
+  const t = $("anMarks").querySelectorAll("textarea"); if (t.length) t[t.length - 1].focus();
+};
+function anList() {
+  $("anMarks").innerHTML = AN.marks.map((m, i) => `<div class="an-mark"><b>${i + 1}</b>
+    <textarea rows="2" data-m="${i}" placeholder="what should change here">${esc(m.text)}</textarea><button data-mdel="${i}" title="remove mark">&times;</button></div>`).join("");
+  $("anMarks").querySelectorAll("[data-m]").forEach(t => t.oninput = () => { AN.marks[+t.dataset.m].text = t.value; });
+  $("anMarks").querySelectorAll("[data-mdel]").forEach(b => b.onclick = () => { AN.marks.splice(+b.dataset.mdel, 1); anDraw(); anList(); });
+  $("anKeep").parentElement.style.opacity = AN.marks.length ? 1 : 0.4;
+}
+function anModeHint() {
+  const m = modelOf($("anModel").value) || {};
+  $("anMode").textContent = m.revise === "inpaint"
+    ? "MOSS repaints only the marked areas (without marks: the whole frame, lightly). Describe what should be there (\"a black handheld microphone in her right hand\"), not an instruction; it does not see the old prompt."
+    : "Edit model: it sees the frame and the marked copy and follows the numbered notes." + (m.kind === "cloud" ? " Paid." : "");
+  $("anStrWrap").classList.toggle("hidden", m.revise !== "inpaint");
+}
+$("anModel").onchange = anModeHint;
+$("anBox").onclick = () => anTool("box"); $("anPen").onclick = () => anTool("pen");
+$("anUndo").onclick = () => { AN.marks.pop(); anDraw(); anList(); };
+$("anClear").onclick = () => { AN.marks = []; anDraw(); anList(); };
+$("anCancel").onclick = closeAnnotator;
+function canvasBlob(cv) { return new Promise(r => cv.toBlob(r, "image/png")); }
+async function anExport() {
+  const img = $("anImg"), W = img.naturalWidth, H = img.naturalHeight;
+  const a = document.createElement("canvas"); a.width = W; a.height = H;
+  const ac = a.getContext("2d"); ac.drawImage(img, 0, 0); drawMarks(ac, W, H, AN.marks, Math.max(3, Math.round(W / 320)));
+  const m = document.createElement("canvas"); m.width = W; m.height = H;
+  const mc = m.getContext("2d"); mc.fillStyle = "#000"; mc.fillRect(0, 0, W, H);
+  const pad = Math.round(Math.max(W, H) * 0.025);
+  mc.globalCompositeOperation = "destination-out"; mc.filter = `blur(${Math.round(pad / 2)}px)`;
+  for (const k of AN.marks) mc.fillRect(k.box[0] * W - pad, k.box[1] * H - pad, (k.box[2] - k.box[0]) * W + 2 * pad, (k.box[3] - k.box[1]) * H + 2 * pad);
+  return [await canvasBlob(a), await canvasBlob(m)];
+}
+$("anSend").onclick = e => {
+  const btn = e.target, model = $("anModel").value, count = +$("anCount").value;
+  if (!AN.marks.some(m => m.text.trim()) && !$("anNote").value.trim()) { $("anErr").textContent = "Write what to change: a note on a mark or the overall note."; return; }
+  if (AN.marks.some(m => !m.text.trim())) { $("anErr").textContent = "Every mark needs a note (or remove it)."; return; }
+  const m = modelOf(model);
+  if (m && m.kind === "cloud" && !btn.dataset.armed) {
+    btn.dataset.armed = "1"; btn.textContent = `${count} paid frame(s), ~$${(m.usd_per_image * count).toFixed(2)}: click again`;
+    setTimeout(() => { delete btn.dataset.armed; btn.textContent = "Send for revision"; }, 4000); return;
+  }
+  delete btn.dataset.armed; btn.textContent = "Send for revision"; anSend(model, count);
+};
+async function anSend(model, count) {
+  $("anSend").disabled = true; $("anErr").textContent = "uploading...";
+  try {
+    const [annot, mask] = await anExport();
+    const ap = AN.marks.length ? await upload(AN.shot, "annotated", new File([annot], "annotated.png")) : null;
+    const mp = AN.marks.length ? await upload(AN.shot, "mask", new File([mask], "mask.png")) : null;
+    if (AN.marks.length && (!ap || !mp)) throw new Error("upload failed");
+    const shotId = AN.shot, i = B.shots.findIndex(x => x.id === shotId);
+    const revision = {source: AN.src, annotated: ap, mask: mp, model, count, keep_rest: $("anKeep").checked,
+      strength: +$("anStr").value, note: $("anNote").value.trim(), marks: AN.marks.map(k => ({text: k.text.trim(), box: k.box}))};
+    const r = await api("/api/jobs", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({action: "revise", b: NAME, shots: [shotId], revision})});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    closeAnnotator(); if (i >= 0) select(i); await pollJobs();
+  } catch (err) { $("anErr").textContent = "Not sent: " + err.message; }
+  $("anSend").disabled = false;
 }
 
 // ================= route

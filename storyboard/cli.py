@@ -6,7 +6,9 @@
   storyboard list <name> [--json]                       shot table (or the board JSON)
   storyboard requests [<name>] [--json]                 open requests from the board(s) for the agent
   storyboard done <name> [<shot_id>]                    clear a request once handled
-  storyboard frames <name> [--shots A,B] [--style sketch|photo] [--missing] [--seed N] [--model ID] [--workflow api.json]
+  storyboard frames <name> [--shots A,B] [--style sketch|photo] [--missing] [--count N] [--seed N] [--model ID]
+                        [--workflow api.json]
+  storyboard revise <name> <shot> --request revisions/<file>.json   annotated revision (written by the page)
   storyboard models          frame models and whether each can run now
   storyboard export <name> [--approved | --shots A,B] [--dest DIR]
   storyboard rename <old> <new> | duplicate <name> <new> | delete <name>
@@ -27,6 +29,7 @@ from pathlib import Path
 from . import board as bd
 from . import frames as fr
 from . import models as fm
+from . import revise as rv
 from .server import serve
 
 
@@ -88,7 +91,8 @@ def cmd_frames(cfg, a):
     style = a.style or b.get("frame_style", "sketch")
     want = set(a.shots.split(",")) if a.shots else None
     template = json.loads(Path(a.workflow).read_text(encoding="utf-8")) if a.workflow else None
-    models = {k: v for k, v in (("unet", a.unet), ("clip", a.clip), ("vae", a.vae)) if v}
+    if not 1 <= a.count <= 10:
+        raise ValueError("--count must be 1-10")
     w, h = fr.frame_size(b, style)
     comfy = fr.Comfy(cfg.comfy_url)
     todo = [s for s in b["shots"] if (want is None or s["id"] in want) and not (a.missing and s.get("start_frame"))]
@@ -96,45 +100,58 @@ def cmd_frames(cfg, a):
     picks = {s["id"]: fm.shot_model(b, s, a.model) for s in todo} if not template else {}
     if picks:
         fm.Checker(cfg.comfy_url).require(sorted(set(picks.values())))
-        paid = [k for k in picks.values() if reg[k].get("kind") == "cloud"]
+        paid = [k for k in picks.values() if reg[k].get("kind") == "cloud"] * a.count
         if paid:
             est = sum(reg[k].get("usd_per_image", 0) for k in paid)
             print(f"{len(paid)} frame(s) on paid models, estimated ${est:.2f}", flush=True)
     made = {}
     out_dir = cfg.board_dir(a.name) / "frames"
     out_dir.mkdir(parents=True, exist_ok=True)
-    for i, s in enumerate(todo):
+    n, total_n = 0, len(todo) * a.count
+    for s in todo:
         prompt = fr.frame_prompt(b, s, style)
-        seed = a.seed if a.seed is not None else fr.shot_seed(s["id"])
-        prefix = f"storyboards/{a.name}/{s['id']}"
         mid = picks.get(s["id"])
         entry = reg.get(mid, {})
-        cost = 0
-        if entry.get("kind") == "cloud":
-            data, secs, cost = fm.openai_image(entry, prompt, w, h)
-        else:
-            t = template or fm.graph_template(entry)
-            graph = (fr.template_graph(t, prompt, seed, w, h, prefix) if t
-                     else fr.zimage_graph(prompt, seed, w, h, prefix, models))
-            data, secs = comfy.run_image(graph)
-        out = (out_dir / f"{s['id']}_{style}_{time.strftime('%Y%m%d_%H%M%S')}.png").resolve()
-        if not out.is_relative_to(out_dir.resolve()):
-            raise ValueError(f"shot id {s['id']!r} would write outside {out_dir}")
-        out.write_bytes(data)
-        out.with_suffix(".json").write_text(json.dumps({"prompt": prompt, "seed": seed, "size": [w, h],
-                                                        "model": mid or a.workflow, "cost_usd": cost,
-                                                        "seconds": round(secs, 1)}, indent=1), encoding="utf-8")
-        made[s["id"]] = cfg.rel(out)
-        print(f"[{i + 1}/{len(todo)}] {s['id']}: {out.name} ({mid or 'workflow'}, {secs:.0f}s"
-              + (f", ${cost:.3f}" if cost else "") + ")", flush=True)
+        # a new seed for every take: the shot's own seed plus the number of versions it already has
+        seed0 = a.seed if a.seed is not None else fr.shot_seed(s["id"]) + len(s.get("versions") or [])
+        for k in range(a.count):
+            seed, cost, n = seed0 + k, 0, n + 1
+            prefix = f"storyboards/{a.name}/{s['id']}"
+            if entry.get("kind") == "cloud":
+                data, secs, cost = fm.openai_image(entry, prompt, w, h)
+            else:
+                data, secs = comfy.run_image(fr.template_graph(template or fm.graph_template(entry), prompt, seed, w, h,
+                                                               prefix))
+            out = (out_dir / f"{s['id']}_{style}_{time.strftime('%Y%m%d_%H%M%S')}_{k}.png").resolve()
+            if not out.is_relative_to(out_dir.resolve()):
+                raise ValueError(f"shot id {s['id']!r} would write outside {out_dir}")
+            out.write_bytes(data)
+            out.with_suffix(".json").write_text(json.dumps({"prompt": prompt, "seed": seed, "size": [w, h],
+                                                            "model": mid or a.workflow, "cost_usd": cost,
+                                                            "seconds": round(secs, 1)}, indent=1), encoding="utf-8")
+            made.setdefault(s["id"], []).append({"path": cfg.rel(out), "model": mid or "workflow", "seed": seed})
+            print(f"[{n}/{total_n}] {s['id']}: {out.name} ({mid or 'workflow'}, {secs:.0f}s"
+                  + (f", ${cost:.3f}" if cost else "") + ")", flush=True)
     b, _ = bd.load(cfg, a.name)  # re-read: the board may have been edited while frames rendered
     for s in b["shots"]:
         if s["id"] in made:
-            s["start_frame"] = made[s["id"]]
-            if s.get("status", "draft") == "draft":
-                s["status"] = "frames"
+            rv.add_versions(s, made[s["id"]])
     bd.save(cfg, a.name, b)
-    print(len(made), "frame(s) set on the board")
+    print(sum(len(v) for v in made.values()), "frame(s) added to the board")
+
+
+def cmd_revise(cfg, a):
+    d = cfg.board_dir(a.name).resolve()
+    p = Path(a.request).resolve() if Path(a.request).is_absolute() else (d / a.request).resolve()
+    if not p.is_relative_to(d / "revisions") or not p.is_file():
+        raise ValueError("the request must be a file in the board's revisions/ folder")
+    req = rv.check_request(json.loads(p.read_text(encoding="utf-8")))
+    reg = fm.registry()
+    m = reg.get(req["model"], {})
+    if m.get("kind") == "cloud":
+        print(f"{req['count']} paid frame(s), estimated ${m.get('usd_per_image', 0) * req['count']:.2f}", flush=True)
+    made = rv.run(cfg, a.name, a.shot, req, fr.Comfy(cfg.comfy_url), log=lambda t: print(t, flush=True))
+    print(len(made), "revised frame(s) added to", a.shot)
 
 
 def cmd_models(cfg, a):
@@ -258,14 +275,18 @@ def main(argv=None):
     p.add_argument("--shots")
     p.add_argument("--style", choices=["sketch", "photo"])
     p.add_argument("--missing", action="store_true", help="only shots without a start frame")
+    p.add_argument("--count", type=int, default=1, help="takes per shot (1-10), each with its own seed")
     p.add_argument("--seed", type=int)
     p.add_argument("--model", help="frame model id for every shot (default: the shot's frame_model, then the board's)")
     p.add_argument("--workflow", help="API-format text-to-image workflow with {{prompt}} {{seed}} {{width}} {{height}}"
                                       " (overrides the frame models)")
-    p.add_argument("--unet")
-    p.add_argument("--clip")
-    p.add_argument("--vae")
     p.set_defaults(fn=cmd_frames)
+
+    p = sub.add_parser("revise", help="revise a frame from annotations (the page writes the request)")
+    p.add_argument("name")
+    p.add_argument("shot")
+    p.add_argument("--request", required=True, help="request .json in the board's revisions/ folder")
+    p.set_defaults(fn=cmd_revise)
 
     p = sub.add_parser("models", help="frame models and whether each can run now")
     p.add_argument("--json", action="store_true")

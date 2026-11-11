@@ -111,6 +111,13 @@ def validate(board):
             if k in sh and not isinstance(sh[k], str):
                 raise ValueError(f"shot {sid}: {k} must be a path string")
         _check_production_fields(sh, sid)
+        versions = sh.get("versions", [])
+        if not (isinstance(versions, list) and all(isinstance(v, dict) and isinstance(v.get("path"), str)
+                                                   and all(isinstance(v.get(k, ""), (str, int)) for k in ("model", "note", "from", "seed"))
+                                                   for v in versions)):
+            raise ValueError(f"shot {sid}: versions must be a list of {{path, model, seed, from, note}}")
+        if "frame_model" in sh and not isinstance(sh["frame_model"], str):
+            raise ValueError(f"shot {sid}: frame_model must be a model id")
         takes = sh.get("takes", [])
         if not (isinstance(takes, list) and all(isinstance(t, dict) and isinstance(t.get("path"), str) for t in takes)):
             raise ValueError(f"shot {sid}: takes must be a list of {{path, label}}")

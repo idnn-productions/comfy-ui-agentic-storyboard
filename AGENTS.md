@@ -87,8 +87,12 @@ Camera values the board's dropdowns offer (free text is allowed too):
 
 ## Frames
 
-- `storyboard frames <name> [--shots A,B] [--missing] [--style sketch|photo]` renders start frames through
-  ComfyUI (default: Z-Image Turbo, ~4 s each on a 4090) and sets them on the board.
+- `storyboard frames <name> [--shots A,B] [--missing] [--style sketch|photo] [--count N]` renders start frames
+  (default model: MOSS-Image 8-step DMD, local, ~3 s each on a 4090) and adds them as versions of the shot's frame.
+- Model ladder, cheap to expensive: moss-dmd, moss, qwen21 (local), then gpt-flare, then gpt-sunburst (paid). Move a
+  shot up only when the cheaper frames are not good enough; never queue paid frames without the director's OK.
+- The director's annotations arrive as revise jobs from the page (`storyboard revise`); their requests are in the
+  board's `revisions/` folder if you need to see what was asked.
 - Sketch for planning, photo for shots headed to video. A shot's `start_frame_prompt` overrides the generated
   prompt; use it when a frame needs specific direction.
 - A start frame is one moment. When a shot has `beats`, the generated prompt shows the first beat with the number of people stated; otherwise an action like "stands, then drops" comes out as two figures. For anything subtler, write `start_frame_prompt`.
