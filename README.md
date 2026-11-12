@@ -94,7 +94,8 @@ storyboard frames <board> [--shots SH01,SH02] [--style sketch|photo] [--missing]
 storyboard frames <board> --slot end [...]   # end frames: edits of each shot's start frame
 ```
 
-On the page: "Queue N start" / "Queue N end", a version strip per frame, and "Pick image..." (every version large,
+On the page: "Queue N start" / "Queue N end", a version strip per frame, drag and drop (a file from your computer, a
+version thumbnail, a picker tile, or one frame box onto the other or onto any shot card), and "Pick image..." (every version large,
 plus images from this board, the character packs and the other boards) to set any image as the start or end frame.
 
 `--count` makes up to 10 takes per shot, each with its own seed; every take is kept as a version of the shot's start

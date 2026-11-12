@@ -158,6 +158,8 @@ aside { border-left: 1px solid var(--line); background: var(--panel); overflow: 
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .pk-side { background: var(--panel); border-left: 1px solid var(--line); padding: 12px; overflow: auto; display: grid; gap: 10px; align-content: start; }
 .pk-side img { width: 100%; border-radius: 4px; background: #111; }
+.pk-side button.filedrop { outline: 2px dashed var(--drop); }
+.pk-tile[draggable=true], .ver[draggable=true] { cursor: grab; }
 .pk-group { grid-column: 1 / -1; color: var(--dim); font-size: 11px; margin-top: 6px; }
 .endstrip .ver.on { border-color: #f0b54a; }
 .vlabel { font-size: 10px; color: var(--dim); margin: 2px 0 -2px; }
@@ -282,6 +284,7 @@ kbd { background: #2a2d35; border: 1px solid var(--line); border-radius: 3px; pa
     <img id="pkBig" alt="">
     <div class="meta" id="pkInfo" style="font-size:11px;color:var(--dim);word-break:break-all"></div>
     <div class="row"><button class="primary" id="pkStart">Use as start frame</button><button id="pkEnd">Use as end frame</button></div>
+    <div class="meta" style="font-size:11px;color:var(--dim)">or drag a tile onto one of these buttons</div>
     <button id="pkClose">Close (Esc)</button>
   </div>
 </div>
@@ -511,7 +514,7 @@ function wireCard(c) {
   c.ondragend = () => { dragFrom = null; document.querySelectorAll(".card").forEach(x => x.classList.remove("dragging", "drop-before", "drop-after")); };
   c.ondragover = e => {
     e.preventDefault();
-    const files = e.dataTransfer.types.includes("Files");
+    const files = e.dataTransfer.types.includes("Files") || isFrameDrag(e);
     document.querySelectorAll(".card").forEach(x => x.classList.remove("drop-before", "drop-after"));
     c.querySelector(".thumb").classList.toggle("filedrop", files);
     if (!files && dragFrom !== null) { const r = c.getBoundingClientRect(); c.classList.add(e.clientX < r.left + r.width / 2 ? "drop-before" : "drop-after"); }
@@ -520,6 +523,8 @@ function wireCard(c) {
   c.ondrop = async e => {
     e.preventDefault(); c.querySelector(".thumb").classList.remove("filedrop");
     if (e.dataTransfer.files.length) { const f = e.dataTransfer.files[0]; await uploadTo(i, f.type.startsWith("audio") ? "audio" : "start", f); return; }
+    const fp = dragPath(e);
+    if (fp) { setFrame(B.shots[i], "start", fp, "dragged"); touch(); renderAll(); return; }
     if (dragFrom === null) return;
     const r = c.getBoundingClientRect(); let to = e.clientX < r.left + r.width / 2 ? i : i + 1;
     const selId = B.shots[sel].id, [m] = B.shots.splice(dragFrom, 1); if (dragFrom < to) to--;
@@ -535,11 +540,28 @@ async function upload(shotId, slot, file) {
   if (!r.ok) { showBanner("Upload failed: " + esc(j.error)); setSave("error", "err"); return null; }
   return j.path;
 }
+// Set a shot's start or end frame to an image path; the frame that was there and the new one stay as versions.
+function setFrame(s, slot, path, note) {
+  const key = slot === "end" ? "end_frame" : "start_frame", mk = (pa, n) => ({path: pa, ...(n ? {note: n} : {}), ...(slot === "end" ? {slot: "end"} : {})});
+  s.versions = s.versions || [];
+  const has = pa => s.versions.some(v => v.path === pa && (v.slot || "start") === slot);
+  if (s[key] && !has(s[key])) s.versions.push(mk(s[key]));
+  if (!has(path)) s.versions.push(mk(path, note));
+  s[key] = path;
+  if ((s.status || "draft") === "draft") s.status = "frames";
+}
 async function uploadTo(i, slot, file) {
   const s = B.shots[i], p = await upload(s.id, slot, file); if (!p) return;
-  if (slot === "audio") s.audio = p; else if (slot === "reference") s.reference_video = p; else s[slot + "_frame"] = p;
-  if (["start", "end"].includes(slot) && (s.status || "draft") === "draft") s.status = "frames";
+  if (slot === "audio") s.audio = p; else if (slot === "reference") s.reference_video = p; else setFrame(s, slot, p, "uploaded");
   touch(); renderAll();
+}
+// Images on the page (versions, picker tiles, the frame slots) drag as a root-relative path.
+const FRAME_MIME = "application/x-storyboard-frame";
+const dragPath = e => e.dataTransfer.types.includes(FRAME_MIME) ? e.dataTransfer.getData(FRAME_MIME) : null;
+const isFrameDrag = e => e.dataTransfer.types.includes(FRAME_MIME);
+function makeDraggable(el, path) {
+  el.draggable = true;
+  el.ondragstart = e => { e.stopPropagation(); e.dataTransfer.setData(FRAME_MIME, path); e.dataTransfer.effectAllowed = "copy"; };
 }
 function select(i) {
   if (i < 0 || i >= B.shots.length) return;
@@ -695,7 +717,12 @@ function renderShotPanel() {
   ed.querySelectorAll("[data-dd]").forEach(b => b.onclick = () => { s.duration = Math.max(0.1, +((+s.duration) + (+b.dataset.dd)).toFixed(3)); touch(); renderAll(); });
   ed.querySelectorAll("[data-st]").forEach(b => b.onclick = () => { s.status = b.dataset.st; touch(); renderAll(); });
   ed.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { s.pick = b.dataset.pick; s.status = "picked"; touch(); renderAll(); });
-  ed.querySelectorAll(".slot").forEach(sl => wireDrop(sl, f => uploadTo(sel, sl.dataset.slot, f), "image/*"));
+  ed.querySelectorAll(".slot").forEach(sl => {
+    wireDrop(sl, f => uploadTo(sel, sl.dataset.slot, f), "image/*", false, path => { setFrame(s, sl.dataset.slot, path, "dragged"); touch(); renderAll(); });
+    const cur = sl.dataset.slot === "end" ? s.end_frame : s.start_frame;
+    if (cur) makeDraggable(sl, cur);  // e.g. drag the start frame onto the end slot
+  });
+  ed.querySelectorAll("[data-v]").forEach(v => makeDraggable(v, v.dataset.v));
   wireDrop($("aslot"), f => uploadTo(sel, "audio", f), "audio/*", !!s.audio);
   if ($("clrAudio")) $("clrAudio").onclick = e => { e.stopPropagation(); delete s.audio; touch(); renderAll(); };
   if ($("fitAudio")) $("fitAudio").onclick = () => {
@@ -713,7 +740,7 @@ function renderShotPanel() {
   $("annotate").onclick = () => openAnnotator("start");
   $("annotateEnd").onclick = () => openAnnotator("end");
   if ($("nextUp")) $("nextUp").onclick = () => { s.frame_model = nextUp(shotModel(s)).id; touch(); renderSide(); };
-  ed.querySelectorAll("[data-v]").forEach(v => v.onclick = () => { s[v.dataset.vslot === "end" ? "end_frame" : "start_frame"] = v.dataset.v; touch(); renderAll(); });
+  ed.querySelectorAll("[data-v]").forEach(v => v.onclick = () => { setFrame(s, v.dataset.vslot === "end" ? "end" : "start", v.dataset.v); touch(); renderAll(); });
   if ($("renderShot")) $("renderShot").onclick = () => {
     if (!["approved", "rendered", "picked"].includes(s.status || "draft")) {
       showJobLine(`Render needs an approved shot: set ${s.id} to approved first.`); return;
@@ -722,10 +749,14 @@ function renderShotPanel() {
   };
   showJobLine();
 }
-function wireDrop(el, onFile, accept, noClick) {
-  el.ondragover = e => { e.preventDefault(); el.classList.add("filedrop"); };
+function wireDrop(el, onFile, accept, noClick, onPath) {
+  el.ondragover = e => { e.preventDefault(); e.stopPropagation(); el.classList.add("filedrop"); };
   el.ondragleave = () => el.classList.remove("filedrop");
-  el.ondrop = e => { e.preventDefault(); el.classList.remove("filedrop"); if (e.dataTransfer.files.length) onFile(e.dataTransfer.files[0]); };
+  el.ondrop = e => {
+    e.preventDefault(); e.stopPropagation(); el.classList.remove("filedrop");
+    if (e.dataTransfer.files.length) onFile(e.dataTransfer.files[0]);
+    else if (onPath && dragPath(e)) onPath(dragPath(e));
+  };
   if (!noClick) el.onclick = () => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = accept;
     inp.onchange = () => inp.files[0] && onFile(inp.files[0]); inp.click(); };
 }
@@ -1034,7 +1065,7 @@ function pkGrid() {
     h += `<div class="pk-tile${cls}" data-pki="${i}" style="background-image:url('${fileUrl(it.path)}')"><span>${esc(it.label)}</span></div>`;
   }
   $("pkGrid").innerHTML = h || `<div class="pk-group">no images here yet</div>`;
-  $("pkGrid").querySelectorAll("[data-pki]").forEach(t => t.onclick = () => pkChoose(+t.dataset.pki));
+  $("pkGrid").querySelectorAll("[data-pki]").forEach(t => { t.onclick = () => pkChoose(+t.dataset.pki); makeDraggable(t, PK.items[+t.dataset.pki].path); });
   if (!PK.chosen && PK.items.length) pkChoose(0);
   if (!PK.items.length) { $("pkBig").removeAttribute("src"); $("pkInfo").textContent = ""; }
 }
@@ -1045,20 +1076,20 @@ function pkChoose(i) {
 }
 function pkUse(slot) {
   const s = B.shots[sel]; if (!PK || !PK.chosen || !s) return;
-  const path = PK.chosen.path, key = slot === "end" ? "end_frame" : "start_frame";
-  s.versions = s.versions || [];
-  if (s[key] && !s.versions.some(v => v.path === s[key] && (v.slot || "start") === slot))
-    s.versions.push(slot === "end" ? {path: s[key], slot: "end"} : {path: s[key]});
-  if (!s.versions.some(v => v.path === path && (v.slot || "start") === slot))
-    s.versions.push(slot === "end" ? {path, note: "picked", slot: "end"} : {path, note: "picked"});
-  s[key] = path;
-  if (slot === "start" && (s.status || "draft") === "draft") s.status = "frames";
+  setFrame(s, slot, PK.chosen.path, "picked");
   touch(); renderAll(); pkGrid();
   $("pkInfo").textContent = `set as the ${slot} frame of ${s.id}`;
 }
 function closePicker() { PK = null; $("pk").classList.add("hidden"); }
 $("pkStart").onclick = () => pkUse("start");
 $("pkEnd").onclick = () => pkUse("end");
+for (const [id, slot] of [["pkStart", "start"], ["pkEnd", "end"]]) {  // drop a tile here
+  const b = $(id);
+  b.ondragover = e => { if (isFrameDrag(e)) { e.preventDefault(); b.classList.add("filedrop"); } };
+  b.ondragleave = () => b.classList.remove("filedrop");
+  b.ondrop = e => { e.preventDefault(); b.classList.remove("filedrop"); const fp = dragPath(e);
+    if (fp) { PK.chosen = {path: fp, group: "", label: ""}; pkUse(slot); pkChoose(Math.max(0, PK.items.findIndex(x => x.path === fp))); } };
+}
 $("pkClose").onclick = closePicker;
 document.addEventListener("keydown", e => { if (PK && e.key === "Escape") closePicker(); });
 function outfitRow(s) {
