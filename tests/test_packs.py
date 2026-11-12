@@ -60,6 +60,8 @@ class PackTests(unittest.TestCase):
         g = fr.ref_graph(tpl, "p", 1, ["x.png"], 1344, 768, "pre")
         self.assertEqual((g["l"]["inputs"]["width"], g["l"]["inputs"]["height"]), (1344, 768))
         self.assertNotIn("r2", g)
+        tpl2 = {**tpl, "sw": {"class_type": "ComfySwitchNode", "inputs": {"switch": False, "on_false": ["e", 2], "on_true": ["l", 0]}}}
+        self.assertTrue(fr.ref_graph(tpl2, "p", 1, ["x.png"], 1344, 768, "pre")["sw"]["inputs"]["switch"])
         self.assertNotIn("b", g["e"]["inputs"])
 
     def test_export_fills_block_and_voice_from_pack(self):

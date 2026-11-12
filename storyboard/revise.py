@@ -31,6 +31,7 @@ def check_request(req):
     if not isinstance(req, dict):
         raise ValueError("revision must be an object")
     out = {"model": str(req.get("model") or ""), "note": str(req.get("note") or "")[:MAX_TEXT],
+           "slot": "end" if req.get("slot") == "end" else "start",
            "count": int(req.get("count") or 1), "keep_rest": bool(req.get("keep_rest", True)),
            "strength": float(req.get("strength") or 0.9)}
     if not 1 <= out["count"] <= 10:
@@ -183,19 +184,22 @@ def run(cfg, name, shot_id, req, comfy, log=print):
     b, _ = bd.load(cfg, name)  # re-read: the board may have been edited meanwhile
     for s in b["shots"]:
         if s["id"] == shot_id:
-            add_versions(s, [{"path": p, "model": mid, "from": req["source"], "note": summary} for p in made])
+            slot = req.get("slot", "start")
+            add_versions(s, [{"path": p, "model": mid, "from": req["source"], "note": summary,
+                              **({"slot": "end"} if slot == "end" else {})} for p in made], slot)
     bd.save(cfg, name, b)
     return made
 
 
-def add_versions(shot, items):
-    """Append frame versions (newest last) and show the newest as the start frame. The original first frame is kept as
-    the first version so it can be picked again."""
+def add_versions(shot, items, slot="start"):
+    """Append frame versions (newest last) and show the newest in the slot (start or end frame). The frame that was in
+    the slot is kept as a version so it can be picked again. End-frame versions carry "slot": "end"."""
+    key = "end_frame" if slot == "end" else "start_frame"
     v = shot.setdefault("versions", [])
-    if shot.get("start_frame") and not any(x.get("path") == shot["start_frame"] for x in v):
-        v.append({"path": shot["start_frame"]})
+    if shot.get(key) and not any(x.get("path") == shot[key] for x in v):
+        v.append({"path": shot[key], **({"slot": "end"} if slot == "end" else {})})
     v.extend(items)
     if items:
-        shot["start_frame"] = items[-1]["path"]
-        if shot.get("status", "draft") == "draft":
+        shot[key] = items[-1]["path"]
+        if slot != "end" and shot.get("status", "draft") == "draft":
             shot["status"] = "frames"

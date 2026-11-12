@@ -145,6 +145,17 @@ class Checker:
                 raise ValueError(f"{by_id[k]['label']} is not available: {by_id[k]['reason']}")
 
 
+def can_edit(entry):
+    """True when the model reads reference images (a cloud model, or a local one with an edit graph)."""
+    return entry.get("kind") == "cloud" or bool(entry.get("edit_graph"))
+
+
+def end_model(board, shot, override=None):
+    """End frames are edits of the start frame: the shot's model if it can edit, else PACK_MODEL."""
+    m = shot_model(board, shot, override)
+    return m if can_edit(registry().get(m, {})) else PACK_MODEL
+
+
 def shot_model(board, shot, override=None):
     """override, then the shot's model, then the board's, then DEFAULT; a retired model falls through to the next."""
     for m in (override, shot.get("frame_model"), board.get("frame_model")):

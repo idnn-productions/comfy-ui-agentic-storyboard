@@ -91,6 +91,11 @@ Camera values the board's dropdowns offer (free text is allowed too):
 
 - `storyboard frames <name> [--shots A,B] [--missing] [--style sketch|photo] [--count N]` renders start frames
   (default model: MOSS-Image 8-step DMD, local, ~3 s each on a 4090) and adds them as versions of the shot's frame.
+  `--slot end` renders end frames instead: each is an edit of the shot's current start frame (same people, set and
+  light) from `end_frame_prompt`, else the last beat, else the action, on a model that edits (Qwen-Image 2.1 locally
+  when the shot's model can't). End-frame versions carry `"slot": "end"` in `versions`.
+- The page lets the director generate start and end frames, compare every version large, and pick any image from the
+  board, the character packs or other boards as a start or end frame ("Pick image..."), so nobody opens folders.
 - Model ladder, cheap to expensive: moss-dmd, moss, qwen21 (local), then gpt-flare, then gpt-sunburst (paid). Move a
   shot up only when the cheaper frames are not good enough; never queue paid frames without the director's OK.
 - The director's annotations arrive as revise jobs from the page (`storyboard revise`); their requests are in the

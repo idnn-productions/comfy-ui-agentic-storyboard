@@ -124,7 +124,8 @@ aside { border-left: 1px solid var(--line); background: var(--panel); overflow: 
 .chars { display: grid; gap: 6px; }
 .charrow { display: grid; grid-template-columns: 90px 1fr 120px 26px; gap: 4px; }
 .charrow input { padding: 4px 6px; }
-.charrow2 { display: grid; grid-template-columns: 120px 1fr; gap: 4px; margin: -2px 0 6px; }
+.charrow2 { display: grid; grid-template-columns: 180px 1fr; gap: 4px; margin: -2px 0 6px; }
+.charrow2 select { padding: 3px 4px; min-width: 0; flex: 1; }
 .charrow2 input, .charrow2 textarea { padding: 4px 6px; min-height: 0; }
 .check { display: flex !important; gap: 6px; align-items: center; color: var(--text) !important; }
 .check input { width: auto !important; }
@@ -144,6 +145,23 @@ aside { border-left: 1px solid var(--line); background: var(--panel); overflow: 
 .versions .ver.rev::after { content: "\270E"; position: absolute; right: 2px; top: 0; font-size: 10px; color: var(--accent); }
 .modelrow { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: end; }
 .preview img { cursor: crosshair; }
+/* frame picker */
+.pk { position: fixed; inset: 0; background: #000e; z-index: 50; display: grid; grid-template-columns: minmax(0, 1fr) 340px; }
+.pk-main { overflow: auto; padding: 12px; min-width: 0; }
+.pk-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.pk-tabs button.on { background: var(--accent); color: #111; border-color: var(--accent); }
+.pk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.pk-tile { position: relative; background: #111 center/contain no-repeat; aspect-ratio: var(--ar, 16/9); border: 2px solid transparent;
+  border-radius: 4px; cursor: zoom-in; }
+.pk-tile.cur-start { border-color: var(--accent); } .pk-tile.cur-end { border-color: #f0b54a; }
+.pk-tile span { position: absolute; left: 0; right: 0; bottom: 0; font-size: 10px; background: #000b; color: #ddd; padding: 1px 4px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pk-side { background: var(--panel); border-left: 1px solid var(--line); padding: 12px; overflow: auto; display: grid; gap: 10px; align-content: start; }
+.pk-side img { width: 100%; border-radius: 4px; background: #111; }
+.pk-group { grid-column: 1 / -1; color: var(--dim); font-size: 11px; margin-top: 6px; }
+.endstrip .ver.on { border-color: #f0b54a; }
+.vlabel { font-size: 10px; color: var(--dim); margin: 2px 0 -2px; }
+.packhead { width: 28px; height: 28px; border-radius: 50%; background: #111 center/cover no-repeat; flex: none; }
 /* annotator */
 .an { position: fixed; inset: 0; background: #000e; z-index: 50; display: grid; grid-template-columns: minmax(0, 1fr) 360px; }
 .an-stage { display: flex; align-items: center; justify-content: center; padding: 16px; min-width: 0; min-height: 0; }
@@ -252,6 +270,19 @@ kbd { background: #2a2d35; border: 1px solid var(--line); border-radius: 3px; pa
     <label id="anStrWrap">Repaint strength (local inpaint) <input type="range" id="anStr" min="0.4" max="1" step="0.05" value="0.9"></label>
     <div class="row"><button id="anCancel">Cancel (Esc)</button><button class="primary" id="anSend">Send for revision</button></div>
     <div class="err" id="anErr"></div>
+  </div>
+</div>
+<div class="pk hidden" id="pk">
+  <div class="pk-main">
+    <div class="pk-tabs" id="pkTabs"></div>
+    <div class="pk-grid" id="pkGrid"></div>
+  </div>
+  <div class="pk-side">
+    <h3 id="pkTitle" style="margin:0;font-size:14px">Pick a frame</h3>
+    <img id="pkBig" alt="">
+    <div class="meta" id="pkInfo" style="font-size:11px;color:var(--dim);word-break:break-all"></div>
+    <div class="row"><button class="primary" id="pkStart">Use as start frame</button><button id="pkEnd">Use as end frame</button></div>
+    <button id="pkClose">Close (Esc)</button>
   </div>
 </div>
 <audio id="audio" preload="auto"></audio>
@@ -575,11 +606,16 @@ function renderShotPanel() {
       return `<button data-st="${st}" class="${on ? "on" : ""}" style="${on ? "background:" + STATUS_COLOR(st) : ""}">${st}</button>`; }).join("")}</div>
     <div class="slots"><div class="slot" data-slot="start" style="${s.start_frame ? `background-image:url('${fileUrl(s.start_frame)}')` : ""}">start frame</div>
       <div class="slot" data-slot="end" style="${s.end_frame ? `background-image:url('${fileUrl(s.end_frame)}')` : ""}">end frame</div></div>
-    ${versionStrip(s)}
+    ${versionStrip(s, "start")}
+    ${versionStrip(s, "end")}
     <div class="genrow">
       <select id="genCount" title="takes to queue, each with its own seed">${[1, 2, 4, 10].map(n => `<option${n === GEN_COUNT ? " selected" : ""}>${n}</option>`).join("")}</select>
-      <button id="genFrame" title="queue new start frames in ComfyUI (or the cloud model); every take is kept as a version">Queue ${GEN_COUNT} on ${esc((modelOf(shotModel(s)) || {}).label || shotModel(s))} (${esc(B.frame_style === "photo" ? "photo" : "sketch")})</button>
-      <button id="annotate" title="draw on the frame and send it back for a revision"${s.start_frame ? "" : " disabled"}>&#9998; Annotate</button></div>
+      <button id="genFrame" title="queue new start frames in ComfyUI (or the cloud model); every take is kept as a version">Queue ${GEN_COUNT} start on ${esc((modelOf(startModel(s)) || {}).label || startModel(s))}${startModel(s) !== shotModel(s) ? " (pack refs)" : ""} (${esc(B.frame_style === "photo" ? "photo" : "sketch")})</button>
+      <button id="genEnd" title="queue end frames: each is an edit of the current start frame (same people, set and light), from the end frame prompt, else the last beat, else the action"${s.start_frame ? "" : " disabled"}>Queue ${GEN_COUNT} end on ${esc((modelOf(endModel(s)) || {}).label || endModel(s))}</button></div>
+    <div class="genrow">
+      <button id="pickFrame" title="see every version large, or pick an image from this board, the character packs or other boards">Pick image&hellip;</button>
+      <button id="annotate" title="draw on the start frame and send it back for a revision"${s.start_frame ? "" : " disabled"}>&#9998; Annotate start</button>
+      <button id="annotateEnd" title="draw on the end frame and send it back for a revision"${s.end_frame ? "" : " disabled"}>&#9998; Annotate end</button></div>
     <div class="modelrow"><label>Frame model<select data-k="frame_model">${modelOptions(s.frame_model || "", true)}</select></label>
       ${(() => { const up = nextUp(shotModel(s)); return up ? `<button id="nextUp" title="move this shot one step up the ladder: ${esc(up.label)}">&uarr; ${esc(up.label)}</button>` : ""; })()}</div>
     <div class="row">
@@ -600,6 +636,7 @@ function renderShotPanel() {
       <label>Motion profile<select data-p="motion"><option value="">default (${esc(shotMotion({lane: s.lane}))})</option>${MOTIONS.map(m => `<option${s.motion === m ? " selected" : ""}>${m}</option>`).join("")}</select></label></div>
     <label>Workflow<input data-p="workflow" list="wfList" value="${esc(s.workflow || "")}" placeholder="e.g. dialogue-ltx25distilled"></label>
     <datalist id="wfList">${WORKFLOWS.map(w => `<option value="${w}">`).join("")}</datalist>
+    ${outfitRow(s)}
     <label class="check"><input type="checkbox" data-p="landing_pose"${s.landing_pose ? " checked" : ""}> end frame is a deliberate landing pose (action shots)</label>
     <div class="aslot" id="refslot">${s.reference_video ? `<video src="${fileUrl(s.reference_video)}" muted controls style="flex:1;max-height:140px"></video><button id="clrRef" title="remove reference">&times;</button>`
       : `<span style="flex:1">reference video (performance to follow): drop a clip here or click</span>`}</div>
@@ -670,9 +707,13 @@ function renderShotPanel() {
   $("clearFrames").onclick = () => { delete s.start_frame; delete s.end_frame; touch(); renderAll(); };
   $("genCount").onchange = e => { GEN_COUNT = +e.target.value; renderSide(); };
   $("genFrame").onclick = e => paidGuard(e.target, Array(GEN_COUNT).fill(s), () => startJob({action: "frames", shots: [s.id], count: GEN_COUNT}));
-  $("annotate").onclick = openAnnotator;
+  $("genEnd").onclick = e => paidGuard(e.target, Array(GEN_COUNT).fill(s), () => startJob({action: "frames", shots: [s.id], count: GEN_COUNT, slot: "end"}));
+  $("pickFrame").onclick = () => openPicker("versions");
+  ed.querySelectorAll("[data-pkopen]").forEach(b => b.onclick = e => { e.stopPropagation(); openPicker("versions"); });
+  $("annotate").onclick = () => openAnnotator("start");
+  $("annotateEnd").onclick = () => openAnnotator("end");
   if ($("nextUp")) $("nextUp").onclick = () => { s.frame_model = nextUp(shotModel(s)).id; touch(); renderSide(); };
-  ed.querySelectorAll("[data-v]").forEach(v => v.onclick = () => { s.start_frame = v.dataset.v; touch(); renderAll(); });
+  ed.querySelectorAll("[data-v]").forEach(v => v.onclick = () => { s[v.dataset.vslot === "end" ? "end_frame" : "start_frame"] = v.dataset.v; touch(); renderAll(); });
   if ($("renderShot")) $("renderShot").onclick = () => {
     if (!["approved", "rendered", "picked"].includes(s.status || "draft")) {
       showJobLine(`Render needs an approved shot: set ${s.id} to approved first.`); return;
@@ -694,7 +735,10 @@ function renderBoardPanel() {
   const chars = (B.characters || []).map((c, i) => `<div class="charrow" data-ci="${i}">
       <input data-c="id" value="${esc(c.id)}" placeholder="ID"><input data-c="desc" value="${esc(c.desc || c.ref || "")}" placeholder="look / description">
       <input data-c="voice_id" value="${esc(c.voice_id || "")}" placeholder="ElevenLabs voice id"><button data-cdel="${i}">&times;</button></div>
-      <div class="charrow2" data-ci="${i}"><input data-c="pack" value="${esc(c.pack || "")}" placeholder="pack (e.g. zyra_oon)">
+      <div class="charrow2" data-ci="${i}"><div style="display:flex;gap:6px;align-items:center">${(() => { const pk = PACKS.find(p => p.name === c.pack);
+        return pk && pk.headshot ? `<span class="packhead" style="background-image:url('${fileUrl(pk.headshot)}')" title="${esc(pk.display_name)}"></span>` : ""; })()}
+        <select data-c="pack" title="character pack: its description block, headshot and outfits are used for photo frames; its voice id on export"><option value="">no pack</option>${PACKS.map(p =>
+          `<option value="${esc(p.name)}"${p.name === c.pack ? " selected" : ""}>${esc(p.display_name)}${p.voice_id ? " · voice" : ""}</option>`).join("")}${c.pack && !PACKS.some(p => p.name === c.pack) ? `<option selected value="${esc(c.pack)}">${esc(c.pack)} (not found)</option>` : ""}</select></div>
       <textarea data-c="block" rows="2" placeholder="full CHARACTER block for final frames (optional; the description is used otherwise)">${esc(c.block || "")}</textarea></div>`).join("");
   ed.innerHTML = `
     <label>Title<input data-b="title" value="${esc(B.title || "")}"></label>
@@ -752,6 +796,13 @@ function renderBoardPanel() {
         const n = renameInShots(old, nu); touch(); renderAll(); flash(`renamed ${old} → ${nu} in ${n} shot(s)`);
       };
     } else el.oninput = () => { if (el.value) c[el.dataset.c] = el.value; else delete c[el.dataset.c]; touch(); };
+  });
+  ed.querySelectorAll(".charrow2 select[data-c=pack]").forEach(el => el.onchange = () => {
+    const c = B.characters[+el.closest("[data-ci]").dataset.ci];
+    if (el.value) c.pack = el.value; else delete c.pack;
+    const pk = PACKS.find(p => p.name === c.pack);
+    if (pk && pk.voice_id && !c.voice_id) c.voice_id = pk.voice_id;  // the pack's voice, unless one is set already
+    touch(); renderSide();
   });
   ed.querySelectorAll("[data-cdel]").forEach(b => b.onclick = () => { B.characters.splice(+b.dataset.cdel, 1); touch(); renderSide(); });
   $("addChar").onclick = () => { B.characters = B.characters || []; B.characters.push({id: "CHAR" + (B.characters.length + 1)}); touch(); renderSide(); };
@@ -923,15 +974,100 @@ const RETIRED = ["zimage"];  // removed models: shots that still name one use th
 const DEFAULT_MODEL = "moss-dmd";
 const boardModel = () => (B.frame_model && !RETIRED.includes(B.frame_model)) ? B.frame_model : DEFAULT_MODEL;
 const shotModel = s => (s.frame_model && !RETIRED.includes(s.frame_model)) ? s.frame_model : boardModel();
+// what actually runs (models.py): frames with character-pack references, and end frames, need a model that edits
+const PACK_MODEL = "qwen21";
+const canEdit = id => { const m = modelOf(id); return !!m && (m.kind === "cloud" || m.revise === "edit"); };
+const hasPacks = s => B.frame_style === "photo" && (B.characters || []).some(c => (s.characters || []).includes(c.id) && c.pack && PACKS.some(p => p.name === c.pack));
+const startModel = s => hasPacks(s) && !canEdit(shotModel(s)) ? PACK_MODEL : shotModel(s);
+const endModel = s => canEdit(shotModel(s)) ? shotModel(s) : PACK_MODEL;
 // the server lists models cheap to expensive (local MOSS, Qwen, then GPT flare, sunburst)
 function nextUp(id) { const i = MODELS.findIndex(m => m.id === id); return i >= 0 && MODELS[i + 1] ? MODELS[i + 1] : null; }
 let GEN_COUNT = 1;
-function versionStrip(s) {
-  const vs = (s.versions || []).slice().reverse();
-  if (vs.length < 2) return "";
-  return `<div class="versions" title="every take and revision of the start frame, newest first: click one to use it">` + vs.map(v =>
-    `<div class="ver${v.path === s.start_frame ? " on" : ""}${v.from ? " rev" : ""}" data-v="${esc(v.path)}" title="${esc(((modelOf(v.model) || {}).label || v.model || "uploaded") + (v.note ? " · " + v.note : ""))}"
-      style="background-image:url('${fileUrl(v.path)}')"><span>${esc((modelOf(v.model) || {}).label || v.model || "first")}</span></div>`).join("") + `</div>`;
+function slotVersions(s, slot) { return (s.versions || []).filter(v => (v.slot || "start") === slot); }
+function versionStrip(s, slot = "start") {
+  const vs = slotVersions(s, slot).slice().reverse();
+  const cur = slot === "end" ? s.end_frame : s.start_frame;
+  if (!vs.length || (vs.length < 2 && vs[0].path === cur)) return "";
+  return `<div class="vlabel">${slot} frame versions (${vs.length}), newest first: click to use, &#10530; to compare large</div>` +
+    `<div class="versions${slot === "end" ? " endstrip" : ""}">` + vs.map(v =>
+    `<div class="ver${v.path === cur ? " on" : ""}${v.from ? " rev" : ""}" data-v="${esc(v.path)}" data-vslot="${slot}" title="${esc(((modelOf(v.model) || {}).label || v.model || "uploaded") + (v.note ? " · " + v.note : ""))}"
+      style="background-image:url('${fileUrl(v.path)}')"><span>${esc((modelOf(v.model) || {}).label || v.model || "first")}</span></div>`).join("") +
+    `<button class="ghost" data-pkopen="${slot}" title="see every frame version large">&#10530;</button></div>`;
+}
+// ---- frame picker: versions of this shot, this board's frames, character packs, other boards
+let PK = null, PACKS = [];
+async function loadPacks() { try { PACKS = (await (await fetch("/api/packs")).json()).packs || []; } catch (e) { PACKS = []; } }
+const PK_TABS = [["versions", "This shot's versions"], ["board", "This board"], ["packs", "Character packs"], ["boards", "All boards"]];
+async function openPicker(tab = "versions") {
+  const s = B.shots[sel]; if (!s) return;
+  stop();
+  PK = {shot: s.id, tab, items: [], chosen: null};
+  $("pkTitle").textContent = `Pick a frame for ${s.id}`;
+  $("pk").classList.remove("hidden");
+  await pkLoad(tab);
+}
+async function pkLoad(tab) {
+  const s = B.shots[sel]; PK.tab = tab; PK.chosen = null;
+  $("pkTabs").innerHTML = PK_TABS.map(([k, l]) => `<button data-pktab="${k}" class="${k === tab ? "on" : ""}">${l}</button>`).join("");
+  $("pkTabs").querySelectorAll("[data-pktab]").forEach(b => b.onclick = () => pkLoad(b.dataset.pktab));
+  if (tab === "versions") {
+    const seen = new Set(), items = [];
+    for (const v of (s.versions || []).slice().reverse()) if (!seen.has(v.path)) { seen.add(v.path);
+      items.push({path: v.path, group: `${v.slot || "start"} frame versions`, label: ((modelOf(v.model) || {}).label || v.model || "uploaded") + (v.note ? " · " + v.note : "")}); }
+    for (const [k, l] of [["start_frame", "start frame versions"], ["end_frame", "end frame versions"]])
+      if (s[k] && !seen.has(s[k])) items.push({path: s[k], group: l, label: "current"});
+    items.sort((a, b) => (a.group > b.group) - (a.group < b.group));
+    PK.items = items.reverse();
+  } else {
+    $("pkGrid").innerHTML = `<div class="pk-group">loading...</div>`;
+    try { PK.items = ((await (await fetch(`/api/images?b=${encodeURIComponent(NAME)}&from=${tab}`)).json()).images || [])
+      .map(x => ({...x, label: x.path.split("/").pop()})); } catch (e) { PK.items = []; }
+  }
+  pkGrid();
+}
+function pkGrid() {
+  const s = B.shots[sel];
+  let last = null, h = "";
+  for (const [i, it] of PK.items.entries()) {
+    if (it.group !== last) { h += `<div class="pk-group">${esc(it.group)}</div>`; last = it.group; }
+    const cls = (it.path === s.start_frame ? " cur-start" : "") + (it.path === s.end_frame ? " cur-end" : "");
+    h += `<div class="pk-tile${cls}" data-pki="${i}" style="background-image:url('${fileUrl(it.path)}')"><span>${esc(it.label)}</span></div>`;
+  }
+  $("pkGrid").innerHTML = h || `<div class="pk-group">no images here yet</div>`;
+  $("pkGrid").querySelectorAll("[data-pki]").forEach(t => t.onclick = () => pkChoose(+t.dataset.pki));
+  if (!PK.chosen && PK.items.length) pkChoose(0);
+  if (!PK.items.length) { $("pkBig").removeAttribute("src"); $("pkInfo").textContent = ""; }
+}
+function pkChoose(i) {
+  PK.chosen = PK.items[i];
+  $("pkBig").src = fileUrl(PK.chosen.path);
+  $("pkInfo").textContent = `${PK.chosen.group} · ${PK.chosen.label}`;
+}
+function pkUse(slot) {
+  const s = B.shots[sel]; if (!PK || !PK.chosen || !s) return;
+  const path = PK.chosen.path, key = slot === "end" ? "end_frame" : "start_frame";
+  s.versions = s.versions || [];
+  if (s[key] && !s.versions.some(v => v.path === s[key] && (v.slot || "start") === slot))
+    s.versions.push(slot === "end" ? {path: s[key], slot: "end"} : {path: s[key]});
+  if (!s.versions.some(v => v.path === path && (v.slot || "start") === slot))
+    s.versions.push(slot === "end" ? {path, note: "picked", slot: "end"} : {path, note: "picked"});
+  s[key] = path;
+  if (slot === "start" && (s.status || "draft") === "draft") s.status = "frames";
+  touch(); renderAll(); pkGrid();
+  $("pkInfo").textContent = `set as the ${slot} frame of ${s.id}`;
+}
+function closePicker() { PK = null; $("pk").classList.add("hidden"); }
+$("pkStart").onclick = () => pkUse("start");
+$("pkEnd").onclick = () => pkUse("end");
+$("pkClose").onclick = closePicker;
+document.addEventListener("keydown", e => { if (PK && e.key === "Escape") closePicker(); });
+function outfitRow(s) {
+  const ids = s.characters || [];
+  const wards = (B.characters || []).filter(c => ids.includes(c.id) && c.pack)
+    .map(c => (PACKS.find(p => p.name === c.pack) || {}).wardrobe || []).flat();
+  if (!wards.length) return "";
+  return `<label>Outfit (from the character pack; a reference for photo frames)<select data-p="outfit">
+    <option value="">pack default (${esc(wards[0])})</option>${[...new Set(wards)].map(w => `<option${s.outfit === w ? " selected" : ""}>${esc(w)}</option>`).join("")}</select></label>`;
 }
 function modelOptions(cur, withDefault) {
   const d = modelOf(boardModel());
@@ -959,11 +1095,12 @@ function paidGuard(btn, shots, run) {
 // (transparent where the marks are, soft edges), then queues a revise job; the request text goes in a file, not a command.
 let AN = null;
 const RED = "#ff2a2a";
-function openAnnotator() {
-  const s = B.shots[sel]; if (!s || !s.start_frame) return;
+function openAnnotator(slot = "start") {
+  const s = B.shots[sel], src = slot === "end" ? s && s.end_frame : s && s.start_frame;
+  if (!src) return;
   stop();
-  AN = {shot: s.id, src: s.start_frame, marks: [], tool: "box", draft: null};
-  $("anTitle").textContent = `Annotate ${s.id}`; $("anNote").value = ""; $("anErr").textContent = "";
+  AN = {shot: s.id, src, slot, marks: [], tool: "box", draft: null};
+  $("anTitle").textContent = `Annotate ${s.id} (${slot} frame)`; $("anNote").value = ""; $("anErr").textContent = "";
   const cur = shotModel(s);
   $("anModel").innerHTML = MODELS.map(m => `<option value="${esc(m.id)}"${m.id === cur ? " selected" : ""}${m.available ? "" : " disabled"}>` +
     esc(m.label + (m.kind === "cloud" ? ` · paid ~$${m.usd_per_image.toFixed(2)}` : " · local") + (m.available ? "" : " (not available)")) + `</option>`).join("");
@@ -1063,7 +1200,7 @@ async function anSend(model, count) {
     const mp = AN.marks.length ? await upload(AN.shot, "mask", new File([mask], "mask.png")) : null;
     if (AN.marks.length && (!ap || !mp)) throw new Error("upload failed");
     const shotId = AN.shot, i = B.shots.findIndex(x => x.id === shotId);
-    const revision = {source: AN.src, annotated: ap, mask: mp, model, count, keep_rest: $("anKeep").checked,
+    const revision = {source: AN.src, slot: AN.slot || "start", annotated: ap, mask: mp, model, count, keep_rest: $("anKeep").checked,
       strength: +$("anStr").value, note: $("anNote").value.trim(), marks: AN.marks.map(k => ({text: k.text.trim(), box: k.box}))};
     const r = await api("/api/jobs", {method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({action: "revise", b: NAME, shots: [shotId], revision})});
@@ -1086,7 +1223,7 @@ fetch("/api/server").then(r => r.ok ? r.json() : {stale: true}).then(j => {
   document.body.prepend(bar);
 }).catch(() => {});
 NAME = new URLSearchParams(location.search).get("b") || "";
-if (NAME) { $("boardView").classList.remove("hidden"); loadModels().then(load).then(poll); setInterval(loadModels, 60000); } else home();
+if (NAME) { $("boardView").classList.remove("hidden"); Promise.all([loadModels(), loadPacks()]).then(load).then(poll); setInterval(loadModels, 60000); } else home();
 </script>
 </body>
 </html>
