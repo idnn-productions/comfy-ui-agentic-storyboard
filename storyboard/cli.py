@@ -29,6 +29,7 @@ from pathlib import Path
 from . import board as bd
 from . import frames as fr
 from . import models as fm
+from . import packs as pk
 from . import revise as rv
 from .server import serve
 
@@ -98,6 +99,13 @@ def cmd_frames(cfg, a):
     todo = [s for s in b["shots"] if (want is None or s["id"] in want) and not (a.missing and s.get("start_frame"))]
     reg = fm.registry()
     picks = {s["id"]: fm.shot_model(b, s, a.model) for s in todo} if not template else {}
+    reg_ = fm.registry()
+    packed = {s["id"]: pk.shot_packs(cfg, b, s) for s in todo} if style != "sketch" and not a.no_packs else {}
+    for sid, ps in packed.items():
+        m = picks.get(sid)
+        if ps and m and not (reg_.get(m, {}).get("kind") == "cloud" or reg_.get(m, {}).get("edit_graph")):
+            print(f"{sid}: {m} cannot read the character pack references; using {fm.PACK_MODEL}", flush=True)
+            picks[sid] = fm.PACK_MODEL
     if picks:
         fm.Checker(cfg.comfy_url).require(sorted(set(picks.values())))
         paid = [k for k in picks.values() if reg[k].get("kind") == "cloud"] * a.count
@@ -108,17 +116,30 @@ def cmd_frames(cfg, a):
     out_dir = cfg.board_dir(a.name) / "frames"
     out_dir.mkdir(parents=True, exist_ok=True)
     n, total_n = 0, len(todo) * a.count
+    uploaded = {}
     for s in todo:
-        prompt = fr.frame_prompt(b, s, style)
+        ps = packed.get(s["id"]) or []
+        prompt = fr.frame_prompt(b, s, style, {c["id"]: pk.block(p) for c, p in ps if pk.block(p)})
         mid = picks.get(s["id"])
         entry = reg.get(mid, {})
+        cap = 4 if entry.get("kind") == "cloud" else 2  # the local edit graph has two image inputs
+        sets = [pk.refs(p, s.get("outfit")) for _, p in ps]
+        refs = ([r[0] for r in sets if r] + [x for r in sets for x in r[1:]])[:cap] if not template else []
         # a new seed for every take: the shot's own seed plus the number of versions it already has
         seed0 = a.seed if a.seed is not None else fr.shot_seed(s["id"]) + len(s.get("versions") or [])
         for k in range(a.count):
             seed, cost, n = seed0 + k, 0, n + 1
             prefix = f"storyboards/{a.name}/{s['id']}"
             if entry.get("kind") == "cloud":
-                data, secs, cost = fm.openai_image(entry, prompt, w, h)
+                data, secs, cost = fm.openai_image(entry, prompt, w, h, refs=[r.read_bytes() for r in refs])
+            elif refs:
+                names = []
+                for r in refs:
+                    if r not in uploaded:
+                        uploaded[r] = comfy.upload(r.read_bytes(), f"pack_{r.parent.name}_{len(uploaded)}.png")
+                    names.append(uploaded[r])
+                data, secs = comfy.run_image(fr.ref_graph(fm.graph_template(entry, "edit_graph"), prompt, seed, names,
+                                                          w, h, prefix))
             else:
                 data, secs = comfy.run_image(fr.template_graph(template or fm.graph_template(entry), prompt, seed, w, h,
                                                                prefix))
@@ -128,6 +149,7 @@ def cmd_frames(cfg, a):
             out.write_bytes(data)
             out.with_suffix(".json").write_text(json.dumps({"prompt": prompt, "seed": seed, "size": [w, h],
                                                             "model": mid or a.workflow, "cost_usd": cost,
+                                                            "refs": [str(r) for r in refs],
                                                             "seconds": round(secs, 1)}, indent=1), encoding="utf-8")
             made.setdefault(s["id"], []).append({"path": cfg.rel(out), "model": mid or "workflow", "seed": seed})
             print(f"[{n}/{total_n}] {s['id']}: {out.name} ({mid or 'workflow'}, {secs:.0f}s"
@@ -212,7 +234,14 @@ def cmd_export(cfg, a):
         if ref and ref.is_file():
             shutil.copy2(ref, d / ("reference" + ref.suffix.lower()))
             meta["reference_video"] = "reference" + ref.suffix.lower()
-        chars = {c["id"]: c for c in b.get("characters", [])}
+        chars = {c["id"]: dict(c) for c in b.get("characters", [])}
+        for c in chars.values():  # a character pack fills a missing block or voice id
+            p = pk.load(cfg, c["pack"]) if c.get("pack") else None
+            if p:
+                if not c.get("voice_id") and p.get("voice_id"):
+                    c["voice_id"] = p["voice_id"]
+                if not c.get("block") and pk.block(p):
+                    c["block"] = pk.block(p)
         blocks = {cid: chars[cid].get("block") or chars[cid].get("desc") for cid in s.get("characters", [])
                   if cid in chars and (chars[cid].get("block") or chars[cid].get("desc"))}
         if blocks:
@@ -280,6 +309,7 @@ def main(argv=None):
     p.add_argument("--model", help="frame model id for every shot (default: the shot's frame_model, then the board's)")
     p.add_argument("--workflow", help="API-format text-to-image workflow with {{prompt}} {{seed}} {{width}} {{height}}"
                                       " (overrides the frame models)")
+    p.add_argument("--no-packs", action="store_true", help="ignore character packs (text-only prompts, no references)")
     p.set_defaults(fn=cmd_frames)
 
     p = sub.add_parser("revise", help="revise a frame from annotations (the page writes the request)")

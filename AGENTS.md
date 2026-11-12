@@ -36,7 +36,9 @@ Board: `title`, `kind` (`story` | `music`), `width`, `height`, `fps`, `frame_sty
 (director's notes), `request`, `look` (appended to photo frame prompts: film stock, light, palette), `notes`,
 `audio` (`{file, offset, bpm, first_beat}`, optional board track), `sections` (`[{name, in, out}]`, music),
 `characters` (`[{id, desc, block, voice_id, pack}]`: `block` is the full character block for final frames,
-`pack` a character pack folder name), `shots`.
+`pack` a character pack folder name in `STORYBOARD_PACKS`, default `<root>/input/characters`; see `storyboard/packs.py`:
+photo frames of a packed character use its prompt block and headshot + outfit as references, on Qwen-Image 2.1 or GPT;
+a shot's `outfit` picks a wardrobe entry), `shots`.
 
 Shot: `id`, `duration` (seconds; order = array order, start times are derived), `section` (scene), `location`,
 `action` (what happens), `dialogue` + `speaker` (a character id) or `lyric`, `audio` (path), `cam`

@@ -27,21 +27,24 @@ def _unname(text, board):
     return text
 
 
-def frame_prompt(board, shot, style):
+def frame_prompt(board, shot, style, blocks=None):
     """Image prompt for a shot's start frame.
 
     Names, ids and lens/move words are kept out on purpose: image models draw them as text (a "KADE" title, "Push in
     24mm" notes). Characters appear as their description, framing as shot size + angle. A start frame is one moment:
     when the shot has beats it shows the first beat (an action text like "stands, then drops" otherwise gets drawn as
     two figures), with the number of people stated. A shot's own start_frame_prompt wins over all of this.
+    `blocks` ({character id: text}, from character packs) replaces those characters' descriptions in photo frames.
     """
     if shot.get("start_frame_prompt"):
         base = shot["start_frame_prompt"]
     else:
         ids = shot.get("characters", [])
         chars = [c for c in board.get("characters", []) if c["id"] in ids]
-        people = "; ".join(f"{(c.get('desc') or '').split(',')[0].strip() or 'a person'}: {c.get('desc')}"
-                           for c in chars if c.get("desc") and "," in c["desc"])
+        blocks = blocks if style != "sketch" else None
+        people = "; ".join(f"{(c.get('desc') or '').split(',')[0].strip() or 'a person'}: "
+                           f"{(blocks or {}).get(c['id']) or c.get('desc')}"
+                           for c in chars if (blocks or {}).get(c["id"]) or (c.get("desc") and "," in c["desc"]))
         cam = shot.get("cam") or {}
         framing = " ".join(x for x in (cam.get("size"), cam.get("angle") and cam["angle"].lower()) if x)
         beats = shot.get("beats") or []
@@ -110,6 +113,16 @@ def edit_graph(template, prompt, seed, images, prefix):
         for n in g.values():
             for name in [i for i, v in n["inputs"].items() if isinstance(v, list) and v and v[0] == k]:
                 del n["inputs"][name]
+    return g
+
+
+def ref_graph(template, prompt, seed, images, width, height, prefix):
+    """A new frame from reference images (character packs): the edit graph, with its empty latent set to the frame
+    size instead of the edit default."""
+    g = edit_graph(template, prompt, seed, images, prefix)
+    for n in g.values():
+        if n.get("class_type", "").startswith("Empty") and "Latent" in n["class_type"]:
+            n["inputs"]["width"], n["inputs"]["height"] = width, height
     return g
 
 

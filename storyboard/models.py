@@ -26,6 +26,7 @@ from pathlib import Path
 
 GRAPHS = Path(__file__).resolve().parent / "graphs"
 DEFAULT = "moss-dmd"
+PACK_MODEL = "qwen21"  # local model for frames with character pack references
 RETIRED = {"zimage": "Z-Image Turbo was removed (2026-11-11): its frames were not usable"}
 
 BUILTIN = {
