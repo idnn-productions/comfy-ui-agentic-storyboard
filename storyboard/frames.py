@@ -19,11 +19,11 @@ NO_TEXT = " No words, no letters, no labels, no captions."
 
 
 def _unname(text, board):
+    # one pass per character, so a description that contains the name ("a prospector, ...") is not replaced again
     for c in board.get("characters", []):
         short = (c.get("desc") or "").split(",")[0].strip() or "a person"
-        for n in {c["id"], c["id"].capitalize(), c["id"].lower()}:
-            text = re.sub(rf"\b{re.escape(n)}'s\b", short + "'s", text)
-            text = re.sub(rf"\b{re.escape(n)}\b", short, text)
+        names = "|".join(re.escape(n) for n in sorted({c["id"], c["id"].capitalize(), c["id"].lower()}, key=len, reverse=True))
+        text = re.sub(rf"\b(?:{names})\b", lambda m: short, text)
     return text
 
 

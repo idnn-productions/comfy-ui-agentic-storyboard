@@ -56,6 +56,11 @@ class FramesPickerTests(unittest.TestCase):
         self.assertEqual(fr.end_prompt(board, {**shot, "end_frame_prompt": "she lowers the cup"}).split(":")[1].strip()[:20],
                          "she lowers the cup. ")
 
+    def test_unname_does_not_repeat_when_the_desc_holds_the_name(self):
+        board = {"characters": [{"id": "PROSPECTOR", "desc": "a prospector in desert kit, amber visor"}]}
+        self.assertEqual(fr._unname("PROSPECTOR checks the rifle; Prospector's cape", board),
+                         "a prospector in desert kit checks the rifle; a prospector in desert kit's cape")
+
     def test_end_model_needs_an_edit_model(self):
         self.assertEqual(fm.end_model({}, {"frame_model": "moss-dmd"}), fm.PACK_MODEL)
         self.assertEqual(fm.end_model({}, {"frame_model": "qwen21"}), "qwen21")
