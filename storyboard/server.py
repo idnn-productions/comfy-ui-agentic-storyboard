@@ -8,8 +8,11 @@ Routes
   GET  /api/server                {stale, render}  (stale: package code changed after start; render: a render command is set)
   GET  /api/models               frame models: [{id, label, kind, note, usd_per_image, available, reason}]
   GET  /api/jobs?b=<name>         jobs for the board (frames / render), newest last, with their last log lines
+  GET  /api/packs                 character packs: [{name, display_name, voice_id, headshot, wardrobe: [keys]}]
+  GET  /api/images?b=<name>&from=board|packs|boards   images to pick a frame from: [{path, group}], newest first
   POST /api/jobs                  {action: frames | revise | render, b, shots: [ids], style?, missing?, count?,
-                                   seeds?, revision?} -> job (revision: see revise.check_request)
+                                   seeds?, revision?, slot?} -> job (revision: see revise.check_request; slot:
+                                   start | end, end frames are edits of the start frame)
   GET  /file?p=<root-relative>    any file under the root, with HTTP Range support (audio/video seeking)
   PUT  /api/board?b=<name>        {version, board} -> 409 if the file changed since that version
   POST /api/boards                {action: create | rename | duplicate | delete, ...}
@@ -30,6 +33,7 @@ import webbrowser
 from pathlib import Path
 
 from . import board as bd
+from . import packs as pk
 from .jobs import Jobs
 
 PKG = Path(__file__).resolve().parent
@@ -37,6 +41,51 @@ PAGE = PKG / "web" / "board.html"
 UPLOAD_EXT = {"start": (".png", ".jpg", ".jpeg", ".webp"), "end": (".png", ".jpg", ".jpeg", ".webp"),
               "audio": (".wav", ".mp3", ".flac", ".m4a", ".ogg"), "take": (".mp4", ".webm", ".mov"),
               "reference": (".mp4", ".webm", ".mov"), "annotated": (".png",), "mask": (".png",)}
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+MAX_IMAGES = 400
+
+
+def list_packs(cfg):
+    out = []
+    base = pk.packs_dir(cfg)
+    for d in sorted(base.iterdir()) if base.is_dir() else []:
+        p = pk.load(cfg, d.name)
+        if not p:
+            continue
+        head = pk._file(p, p.get("master_headshot"))
+        try:
+            head = cfg.rel(head) if head else None
+        except ValueError:  # packs outside the root cannot be served
+            head = None
+        out.append({"name": d.name, "display_name": p.get("display_name") or d.name, "voice_id": p.get("voice_id"),
+                    "headshot": head, "wardrobe": list((p.get("wardrobe") or {}).keys())})
+    return out
+
+
+def list_images(cfg, board, src):
+    """Root-relative image paths to pick a frame from, newest first: this board's frames and revisions, the character
+    packs, or every board's frames."""
+    if src == "board":
+        dirs = [(cfg.board_dir(board) / "frames", "this board"), (cfg.board_dir(board) / "revisions", "revisions")]
+    elif src == "packs":
+        dirs = [(pk.packs_dir(cfg), "packs")]
+    else:
+        dirs = [(cfg.boards / n / "frames", n) for n in bd.names(cfg)]
+    found = []
+    for d, group in dirs:
+        if not d.is_dir():
+            continue
+        for f in d.rglob("*"):
+            if f.suffix.lower() in IMAGE_EXT and f.is_file():
+                rp = f.resolve()
+                if not rp.is_relative_to(cfg.root):
+                    continue
+                g = f.parent.relative_to(d).parts[0] if src == "packs" and f.parent != d else group
+                found.append((f.stat().st_mtime, cfg.rel(rp), g))
+    found.sort(reverse=True)
+    return [{"path": p, "group": g} for _, p, g in found[:MAX_IMAGES]]
+
+
 UPLOAD_DIR = {"audio": "audio", "reference": "refs", "take": "takes", "annotated": "revisions", "mask": "revisions"}
 
 
@@ -97,6 +146,14 @@ def make_handler(cfg, jobs=None):
                 return self._send(200, {"jobs": jobs.list(q.get("b", [None])[0])})
             if u.path == "/api/models":
                 return self._send(200, {"models": jobs.models.all()})
+            if u.path == "/api/packs":
+                return self._send(200, {"packs": list_packs(cfg)})
+            if u.path == "/api/images":
+                name = self._board(q)
+                src = q.get("from", ["board"])[0]
+                if name and src in ("board", "packs", "boards"):
+                    return self._send(200, {"images": list_images(cfg, name, src)})
+                return None if not name else self._send(400, {"error": "from must be board, packs or boards"})
             if u.path == "/api/boards":
                 return self._send(200, {"boards": [s for s in (bd.summary(cfg, n) for n in bd.names(cfg)) if s]})
             if u.path == "/api/board":
@@ -189,7 +246,7 @@ def make_handler(cfg, jobs=None):
                 try:
                     job = jobs.submit(body.get("action"), body.get("b", ""), body.get("shots") or [],
                                       body.get("style"), bool(body.get("missing")), str(body.get("seeds", "1")),
-                                      body.get("count", 1), body.get("revision"))
+                                      body.get("count", 1), body.get("revision"), body.get("slot") or "start")
                 except (ValueError, TypeError) as e:
                     return self._send(400, {"error": str(e)})
                 return self._send(200, {"job": job})

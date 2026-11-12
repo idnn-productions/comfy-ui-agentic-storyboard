@@ -47,8 +47,10 @@ class Jobs:
         return [sys.executable, "-m", "storyboard", "--root", str(self.cfg.root), "--boards", str(self.cfg.boards),
                 "--comfy", self.cfg.comfy_url]
 
-    def _frames_cmd(self, board, shots, style, missing, count=1):
+    def _frames_cmd(self, board, shots, style, missing, count=1, slot="start"):
         cmd = self._base() + ["frames", board]
+        if slot == "end":
+            cmd += ["--slot", "end"]
         if shots:
             cmd += ["--shots", ",".join(shots)]
         if style:
@@ -64,7 +66,8 @@ class Jobs:
         parts = [p.strip('"') for p in parts]
         return [p.format(board=board, shots=",".join(shots), seeds=seeds) for p in parts]
 
-    def submit(self, action, board, shots=(), style=None, missing=False, seeds="1", count=1, revision=None):
+    def submit(self, action, board, shots=(), style=None, missing=False, seeds="1", count=1, revision=None,
+               slot="start"):
         if not bd.valid_name(board) or not self.cfg.board_file(board).exists():
             raise ValueError(f"no board {board!r}")
         shots = [s for s in shots]
@@ -76,10 +79,18 @@ class Jobs:
             count = int(count)
             if not 1 <= count <= 10:
                 raise ValueError("count must be 1-10")
+            if slot not in ("start", "end"):
+                raise ValueError("slot must be start or end")
             b, _ = bd.load(self.cfg, board)
-            todo = [x for x in b["shots"] if (not shots or x["id"] in shots) and not (missing and x.get("start_frame"))]
-            self.models.require(sorted({fm.shot_model(b, x) for x in todo}))  # refuse before queueing
-            cmd = self._frames_cmd(board, shots, style, missing, count)
+            key = "end_frame" if slot == "end" else "start_frame"
+            todo = [x for x in b["shots"] if (not shots or x["id"] in shots) and not (missing and x.get(key))]
+            if slot == "end":
+                todo = [x for x in todo if x.get("start_frame")]
+                if not todo:
+                    raise ValueError("end frames are made from the start frame: make or pick a start frame first")
+            pick = fm.end_model if slot == "end" else fm.shot_model
+            self.models.require(sorted({pick(b, x) for x in todo}))  # refuse before queueing
+            cmd = self._frames_cmd(board, shots, style, missing, count, slot)
         elif action == "revise":
             if len(shots) != 1:
                 raise ValueError("revise needs one shot")

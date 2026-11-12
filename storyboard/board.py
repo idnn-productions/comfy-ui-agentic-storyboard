@@ -114,8 +114,9 @@ def validate(board):
         versions = sh.get("versions", [])
         if not (isinstance(versions, list) and all(isinstance(v, dict) and isinstance(v.get("path"), str)
                                                    and all(isinstance(v.get(k, ""), (str, int)) for k in ("model", "note", "from", "seed"))
+                                                   and v.get("slot", "start") in ("start", "end")
                                                    for v in versions)):
-            raise ValueError(f"shot {sid}: versions must be a list of {{path, model, seed, from, note}}")
+            raise ValueError(f"shot {sid}: versions must be a list of {{path, model, seed, from, note, slot}}")
         if "frame_model" in sh and not isinstance(sh["frame_model"], str):
             raise ValueError(f"shot {sid}: frame_model must be a model id")
         takes = sh.get("takes", [])

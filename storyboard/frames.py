@@ -64,6 +64,24 @@ def frame_prompt(board, shot, style, blocks=None):
     return f"{base} {board.get('look') or ''}".strip() + NO_TEXT
 
 
+END_KEEP = ("Keep the same people, faces, hair, clothes, lighting, lens, camera position and setting as the first "
+            "reference image; change only the pose, position and expression this moment needs.")
+
+
+def end_prompt(board, shot, blocks=None):
+    """Prompt for a shot's end frame, made as an edit of its start frame (the first reference image): the shot's own
+    end_frame_prompt, else its last beat, else its action, as the moment at the end of the shot."""
+    if shot.get("end_frame_prompt"):
+        moment = shot["end_frame_prompt"]
+    else:
+        beats = shot.get("beats") or []
+        moment = _unname((beats[-1].get("action") if beats else None) or shot.get("action") or "", board)
+    ids = shot.get("characters", [])
+    who = "; ".join(f"{b}" for cid, b in (blocks or {}).items() if cid in ids)
+    return (f"The same shot a moment later, at the end of the shot: {moment}. {END_KEEP}"
+            + (f" ({who})" if who else "") + NO_TEXT)
+
+
 def frame_size(board, style):
     """~0.6 MP for sketches, ~1 MP for photos, keeping the board's aspect; multiples of 16."""
     w0, h0 = board.get("width", 1280), board.get("height", 720)
@@ -118,11 +136,20 @@ def edit_graph(template, prompt, seed, images, prefix):
 
 def ref_graph(template, prompt, seed, images, width, height, prefix):
     """A new frame from reference images (character packs): the edit graph, with its empty latent set to the frame
-    size instead of the edit default."""
+    size instead of the edit default (the size of the first reference image). In the Qwen-Image 2.1 edit graph a
+    ComfySwitchNode picks the latent: on_false = the encoder's latent at the reference's size, on_true = the empty
+    latent; it is switched to the empty latent here."""
     g = edit_graph(template, prompt, seed, images, prefix)
-    for n in g.values():
+    empties = set()
+    for k, n in g.items():
         if n.get("class_type", "").startswith("Empty") and "Latent" in n["class_type"]:
             n["inputs"]["width"], n["inputs"]["height"] = width, height
+            empties.add(k)
+    for n in g.values():
+        if n.get("class_type") == "ComfySwitchNode":
+            src = n["inputs"].get("on_true")
+            if isinstance(src, list) and src and src[0] in empties:
+                n["inputs"]["switch"] = True
     return g
 
 

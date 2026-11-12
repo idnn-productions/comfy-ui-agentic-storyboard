@@ -88,24 +88,35 @@ def cmd_done(cfg, a):
 
 
 def cmd_frames(cfg, a):
+    """Start frames (text-to-image, or from character pack references), or with --slot end, end frames made as an edit
+    of each shot's start frame. Every frame is kept as a version of its slot; the newest is shown."""
     b, _ = bd.load(cfg, a.name, check=True)
     style = a.style or b.get("frame_style", "sketch")
+    end = a.slot == "end"
     want = set(a.shots.split(",")) if a.shots else None
-    template = json.loads(Path(a.workflow).read_text(encoding="utf-8")) if a.workflow else None
+    template = json.loads(Path(a.workflow).read_text(encoding="utf-8")) if a.workflow and not end else None
     if not 1 <= a.count <= 10:
         raise ValueError("--count must be 1-10")
     w, h = fr.frame_size(b, style)
     comfy = fr.Comfy(cfg.comfy_url)
-    todo = [s for s in b["shots"] if (want is None or s["id"] in want) and not (a.missing and s.get("start_frame"))]
+    key = "end_frame" if end else "start_frame"
+    todo = [s for s in b["shots"] if (want is None or s["id"] in want) and not (a.missing and s.get(key))]
+    if end:
+        for s in [s for s in todo if not s.get("start_frame")]:
+            print(f"{s['id']}: no start frame to make the end frame from; skipped", flush=True)
+        todo = [s for s in todo if s.get("start_frame")]
     reg = fm.registry()
-    picks = {s["id"]: fm.shot_model(b, s, a.model) for s in todo} if not template else {}
-    reg_ = fm.registry()
     packed = {s["id"]: pk.shot_packs(cfg, b, s) for s in todo} if style != "sketch" and not a.no_packs else {}
-    for sid, ps in packed.items():
-        m = picks.get(sid)
-        if ps and m and not (reg_.get(m, {}).get("kind") == "cloud" or reg_.get(m, {}).get("edit_graph")):
-            print(f"{sid}: {m} cannot read the character pack references; using {fm.PACK_MODEL}", flush=True)
-            picks[sid] = fm.PACK_MODEL
+    picks = {}
+    if not template:
+        for s in todo:
+            m = fm.end_model(b, s, a.model) if end else fm.shot_model(b, s, a.model)
+            if end and m != fm.shot_model(b, s, a.model):
+                print(f"{s['id']}: {fm.shot_model(b, s, a.model)} cannot edit a frame; end frame on {m}", flush=True)
+            elif packed.get(s["id"]) and not fm.can_edit(reg.get(m, {})):
+                print(f"{s['id']}: {m} cannot read the character pack references; using {fm.PACK_MODEL}", flush=True)
+                m = fm.PACK_MODEL
+            picks[s["id"]] = m
     if picks:
         fm.Checker(cfg.comfy_url).require(sorted(set(picks.values())))
         paid = [k for k in picks.values() if reg[k].get("kind") == "cloud"] * a.count
@@ -119,14 +130,29 @@ def cmd_frames(cfg, a):
     uploaded = {}
     for s in todo:
         ps = packed.get(s["id"]) or []
-        prompt = fr.frame_prompt(b, s, style, {c["id"]: pk.block(p) for c, p in ps if pk.block(p)})
+        blocks = {c["id"]: pk.block(p) for c, p in ps if pk.block(p)}
         mid = picks.get(s["id"])
         entry = reg.get(mid, {})
         cap = 4 if entry.get("kind") == "cloud" else 2  # the local edit graph has two image inputs
         sets = [pk.refs(p, s.get("outfit")) for _, p in ps]
-        refs = ([r[0] for r in sets if r] + [x for r in sets for x in r[1:]])[:cap] if not template else []
+        if end:
+            start = cfg.resolve(s["start_frame"])
+            if not start or not start.is_file():
+                print(f"{s['id']}: start frame missing on disk; skipped", flush=True)
+                continue
+            prompt = fr.end_prompt(b, s, blocks)
+            refs = ([start] + [r[0] for r in sets if r])[:cap]
+        else:
+            prompt = fr.frame_prompt(b, s, style, blocks)
+            refs = ([r[0] for r in sets if r] + [x for r in sets for x in r[1:]])[:cap] if not template else []
+            # the prompt block leaves clothes out on purpose (wardrobe is a choice per shot): name the outfit image
+            for (c, _), r in zip(ps, sets):
+                if len(r) > 1 and r[1] in refs:
+                    who = (c.get("desc") or "").split(",")[0].strip() or "the person"
+                    prompt = prompt.replace(fr.NO_TEXT, "") + (f" {who[0].upper() + who[1:]} wears exactly the clothes "
+                                                              f"in reference image {refs.index(r[1]) + 1}.") + fr.NO_TEXT
         # a new seed for every take: the shot's own seed plus the number of versions it already has
-        seed0 = a.seed if a.seed is not None else fr.shot_seed(s["id"]) + len(s.get("versions") or [])
+        seed0 = a.seed if a.seed is not None else fr.shot_seed(s["id"]) + len(s.get("versions") or []) + (1000 if end else 0)
         for k in range(a.count):
             seed, cost, n = seed0 + k, 0, n + 1
             prefix = f"storyboards/{a.name}/{s['id']}"
@@ -136,30 +162,32 @@ def cmd_frames(cfg, a):
                 names = []
                 for r in refs:
                     if r not in uploaded:
-                        uploaded[r] = comfy.upload(r.read_bytes(), f"pack_{r.parent.name}_{len(uploaded)}.png")
+                        uploaded[r] = comfy.upload(r.read_bytes(), f"ref_{r.parent.name[:20]}_{len(uploaded)}.png")
                     names.append(uploaded[r])
                 data, secs = comfy.run_image(fr.ref_graph(fm.graph_template(entry, "edit_graph"), prompt, seed, names,
                                                           w, h, prefix))
             else:
                 data, secs = comfy.run_image(fr.template_graph(template or fm.graph_template(entry), prompt, seed, w, h,
                                                                prefix))
-            out = (out_dir / f"{s['id']}_{style}_{time.strftime('%Y%m%d_%H%M%S')}_{k}.png").resolve()
+            tag = f"{style}_end" if end else style
+            out = (out_dir / f"{s['id']}_{tag}_{time.strftime('%Y%m%d_%H%M%S')}_{k}.png").resolve()
             if not out.is_relative_to(out_dir.resolve()):
                 raise ValueError(f"shot id {s['id']!r} would write outside {out_dir}")
             out.write_bytes(data)
             out.with_suffix(".json").write_text(json.dumps({"prompt": prompt, "seed": seed, "size": [w, h],
                                                             "model": mid or a.workflow, "cost_usd": cost,
-                                                            "refs": [str(r) for r in refs],
+                                                            "slot": a.slot, "refs": [str(r) for r in refs],
                                                             "seconds": round(secs, 1)}, indent=1), encoding="utf-8")
-            made.setdefault(s["id"], []).append({"path": cfg.rel(out), "model": mid or "workflow", "seed": seed})
+            made.setdefault(s["id"], []).append({"path": cfg.rel(out), "model": mid or "workflow", "seed": seed,
+                                                 **({"slot": "end"} if end else {})})
             print(f"[{n}/{total_n}] {s['id']}: {out.name} ({mid or 'workflow'}, {secs:.0f}s"
                   + (f", ${cost:.3f}" if cost else "") + ")", flush=True)
     b, _ = bd.load(cfg, a.name)  # re-read: the board may have been edited while frames rendered
     for s in b["shots"]:
         if s["id"] in made:
-            rv.add_versions(s, made[s["id"]])
+            rv.add_versions(s, made[s["id"]], a.slot)
     bd.save(cfg, a.name, b)
-    print(sum(len(v) for v in made.values()), "frame(s) added to the board")
+    print(sum(len(v) for v in made.values()), f"{'end' if end else 'start'} frame(s) added to the board")
 
 
 def cmd_revise(cfg, a):
@@ -310,6 +338,8 @@ def main(argv=None):
     p.add_argument("--workflow", help="API-format text-to-image workflow with {{prompt}} {{seed}} {{width}} {{height}}"
                                       " (overrides the frame models)")
     p.add_argument("--no-packs", action="store_true", help="ignore character packs (text-only prompts, no references)")
+    p.add_argument("--slot", choices=["start", "end"], default="start",
+                   help="end: end frames, each an edit of the shot's start frame (needs a model that edits)")
     p.set_defaults(fn=cmd_frames)
 
     p = sub.add_parser("revise", help="revise a frame from annotations (the page writes the request)")

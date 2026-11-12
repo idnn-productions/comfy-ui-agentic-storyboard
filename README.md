@@ -91,7 +91,11 @@ There is no built-in LLM call: the board leaves requests, your agent of choice h
 
 ```bash
 storyboard frames <board> [--shots SH01,SH02] [--style sketch|photo] [--missing] [--count N] [--seed N] [--model ID]
+storyboard frames <board> --slot end [...]   # end frames: edits of each shot's start frame
 ```
+
+On the page: "Queue N start" / "Queue N end", a version strip per frame, and "Pick image..." (every version large,
+plus images from this board, the character packs and the other boards) to set any image as the start or end frame.
 
 `--count` makes up to 10 takes per shot, each with its own seed; every take is kept as a version of the shot's start
 frame (the strip of thumbnails in the shot panel, newest first: click one to use it). For a model that is not built in,
