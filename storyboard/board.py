@@ -88,13 +88,15 @@ def validate(board):
     for c in board.get("characters") or []:
         if not isinstance(c, dict) or not isinstance(c.get("id"), str):
             raise ValueError("characters need string ids")
-        for k in ("desc", "block"):
+        for k in ("desc", "block", "name"):
             if k in c and not isinstance(c[k], str):
                 raise ValueError(f"character {c['id']}: {k} must be text")
         if c.get("voice_id") and not (isinstance(c["voice_id"], str) and VOICE_ID_RE.match(c["voice_id"])):
             raise ValueError(f"character {c['id']}: voice_id must be an ElevenLabs voice id (letters and digits)")
         if c.get("pack") and not (isinstance(c["pack"], str) and NAME_RE.match(c["pack"])):
             raise ValueError(f"character {c['id']}: pack must be a pack folder name (lowercase, digits, - _)")
+        if "outfit" in c and not isinstance(c["outfit"], str):
+            raise ValueError(f"character {c['id']}: outfit must be a wardrobe name")
     seen = set()
     for sh in board["shots"]:
         sid = sh.get("id") if isinstance(sh, dict) else None
@@ -117,6 +119,12 @@ def validate(board):
                                                    and v.get("slot", "start") in ("start", "end")
                                                    for v in versions)):
             raise ValueError(f"shot {sid}: versions must be a list of {{path, model, seed, from, note, slot}}")
+        if "look" in sh and not isinstance(sh["look"], str):
+            raise ValueError(f"shot {sid}: look must be text")
+        refs = sh.get("refs", [])
+        if not (isinstance(refs, list) and all(isinstance(r, dict) and isinstance(r.get("path"), str)
+                                               and isinstance(r.get("note", ""), str) for r in refs)):
+            raise ValueError(f"shot {sid}: refs must be a list of {{path, note}}")
         if "frame_model" in sh and not isinstance(sh["frame_model"], str):
             raise ValueError(f"shot {sid}: frame_model must be a model id")
         takes = sh.get("takes", [])

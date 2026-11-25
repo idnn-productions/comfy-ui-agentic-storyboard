@@ -45,10 +45,12 @@ def block(pack):
     return f.read_text(encoding="utf-8").strip() if f else ""
 
 
-def refs(pack, outfit=None):
-    """[master headshot, outfit or full-body front] as existing files (either may be missing)."""
+def refs(pack, outfit=None, default=None):
+    """[master headshot, outfit or full-body front] as existing files (either may be missing). `outfit` is the shot's
+    outfit, used when this pack has it; `default` is the character's outfit on the board (its `outfit` key)."""
     ward = pack.get("wardrobe") or {}
     body = ward.get(outfit) if outfit else None
+    body = body or (ward.get(default) if default else None)
     body = body or next(iter(ward.values()), None) or (pack.get("body_turnaround") or {}).get("front")
     return [f for f in (_file(pack, pack.get("master_headshot")), _file(pack, body)) if f]
 

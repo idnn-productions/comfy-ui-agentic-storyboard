@@ -113,8 +113,8 @@ def cmd_frames(cfg, a):
             m = fm.end_model(b, s, a.model) if end else fm.shot_model(b, s, a.model)
             if end and m != fm.shot_model(b, s, a.model):
                 print(f"{s['id']}: {fm.shot_model(b, s, a.model)} cannot edit a frame; end frame on {m}", flush=True)
-            elif packed.get(s["id"]) and not fm.can_edit(reg.get(m, {})):
-                print(f"{s['id']}: {m} cannot read the character pack references; using {fm.PACK_MODEL}", flush=True)
+            elif (packed.get(s["id"]) or (s.get("refs") and style != "sketch" and not a.no_packs))                     and not fm.can_edit(reg.get(m, {})):
+                print(f"{s['id']}: {m} cannot read reference images; using {fm.PACK_MODEL}", flush=True)
                 m = fm.PACK_MODEL
             picks[s["id"]] = m
     if picks:
@@ -133,8 +133,10 @@ def cmd_frames(cfg, a):
         blocks = {c["id"]: pk.block(p) for c, p in ps if pk.block(p)}
         mid = picks.get(s["id"])
         entry = reg.get(mid, {})
-        cap = 4 if entry.get("kind") == "cloud" else 2  # the local edit graph has two image inputs
-        sets = [pk.refs(p, s.get("outfit")) for _, p in ps]
+        cap = 8 if entry.get("kind") == "cloud" else 6  # local: the edit graph is widened (fr.more_ref_slots)
+        sets = [pk.refs(p, s.get("outfit"), c.get("outfit")) for c, p in ps]
+        extra = [(cfg.resolve(r["path"]), r.get("note", "")) for r in s.get("refs") or []]
+        extra = [(f, note) for f, note in extra if f and f.is_file()]             if style != "sketch" and not template and not a.no_packs else []
         if end:
             start = cfg.resolve(s["start_frame"])
             if not start or not start.is_file():
@@ -142,6 +144,7 @@ def cmd_frames(cfg, a):
                 continue
             prompt = fr.end_prompt(b, s, blocks)
             refs = ([start] + [r[0] for r in sets if r])[:cap]
+            extra = []
         else:
             prompt = fr.frame_prompt(b, s, style, blocks)
             refs = ([r[0] for r in sets if r] + [x for r in sets for x in r[1:]])[:cap] if not template else []
@@ -151,6 +154,18 @@ def cmd_frames(cfg, a):
                     who = (c.get("desc") or "").split(",")[0].strip() or "the person"
                     prompt = prompt.replace(fr.NO_TEXT, "") + (f" {who[0].upper() + who[1:]} wears exactly the clothes "
                                                               f"in reference image {refs.index(r[1]) + 1}.") + fr.NO_TEXT
+        # set, prop and logo references from the shot's `refs`, after the characters, each with its note
+        for f, note in extra:
+            if len(refs) >= cap:
+                print(f"{s['id']}: reference {cfg.rel(f)} left out (at most {cap} references)", flush=True)
+                continue
+            refs.append(f)
+            prompt = prompt.replace(fr.NO_TEXT, "") + (f" Reference image {len(refs)}: {note.strip().rstrip('.')}."
+                                                      if note.strip() else f" Use reference image {len(refs)}.") + fr.NO_TEXT
+        if a.dry_run:
+            print(f"== {s['id']} [{mid or 'workflow'}] x{a.count}\n   refs: " + "; ".join(cfg.rel(r) for r in refs)
+                  + f"\n   prompt: {prompt}", flush=True)
+            continue
         # a new seed for every take: the shot's own seed plus the number of versions it already has
         seed0 = a.seed if a.seed is not None else fr.shot_seed(s["id"]) + len(s.get("versions") or []) + (1000 if end else 0)
         for k in range(a.count):
@@ -337,7 +352,8 @@ def main(argv=None):
     p.add_argument("--model", help="frame model id for every shot (default: the shot's frame_model, then the board's)")
     p.add_argument("--workflow", help="API-format text-to-image workflow with {{prompt}} {{seed}} {{width}} {{height}}"
                                       " (overrides the frame models)")
-    p.add_argument("--no-packs", action="store_true", help="ignore character packs (text-only prompts, no references)")
+    p.add_argument("--dry-run", action="store_true", help="print each shot's prompt and reference images; send nothing")
+    p.add_argument("--no-packs", action="store_true", help="ignore character packs and shot refs (text-only prompts, no references)")
     p.add_argument("--slot", choices=["start", "end"], default="start",
                    help="end: end frames, each an edit of the shot's start frame (needs a model that edits)")
     p.set_defaults(fn=cmd_frames)

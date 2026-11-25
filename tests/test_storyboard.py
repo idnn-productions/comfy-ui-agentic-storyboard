@@ -93,6 +93,32 @@ class BoardTests(Base):
             with self.assertRaises(ValueError, msg=c):
                 bd.save(self.cfg, "p", {**b, "characters": [c]})
 
+    def test_refs_and_character_outfit_validated(self):
+        bd.create(self.cfg, "r")
+        b, _ = bd.load(self.cfg, "r")
+        bd.save(self.cfg, "r", {**b, "characters": [{"id": "A", "pack": "a", "outfit": "pilgrim"}],
+                                 "shots": [{"id": "S", "duration": 1, "refs": [{"path": "input/set.png", "note": "the room"},
+                                                                              {"path": "input/logo.png"}]}]})
+        for shot in ({"refs": "input/set.png"}, {"refs": [{"note": "x"}]}, {"refs": [{"path": "a", "note": 3}]}):
+            with self.assertRaises(ValueError, msg=shot):
+                bd.save(self.cfg, "r", {**b, "shots": [{"id": "S", "duration": 1, **shot}]})
+        with self.assertRaises(ValueError):
+            bd.save(self.cfg, "r", {**b, "characters": [{"id": "A", "outfit": ["x"]}]})
+
+    def test_pack_outfit_order(self):
+        from storyboard import packs as pk
+        d = Path(self.tmp.name) / "pack"
+        d.mkdir()
+        for n in ("head.png", "news.png", "sweater.png", "pilgrim.png"):
+            (d / n).write_bytes(b"x")
+        p = {"dir": d, "master_headshot": "head.png",
+             "wardrobe": {"news": "news.png", "sweater": "sweater.png", "pilgrim": "pilgrim.png"}}
+        names = lambda r: [f.name for f in r]
+        self.assertEqual(names(pk.refs(p)), ["head.png", "news.png"])
+        self.assertEqual(names(pk.refs(p, None, "sweater")), ["head.png", "sweater.png"])
+        self.assertEqual(names(pk.refs(p, "pilgrim", "sweater")), ["head.png", "pilgrim.png"])
+        self.assertEqual(names(pk.refs(p, "flannel", "sweater")), ["head.png", "sweater.png"])  # pack lacks the shot's
+
     def test_motion_default(self):
         self.assertEqual(bd.shot_motion({}), "dialogue")
         self.assertEqual(bd.shot_motion({"lane": "C"}), "ambient")
@@ -177,6 +203,23 @@ class FrameTests(unittest.TestCase):
         self.assertIn("a man in his 30s's key", p)
         self.assertIn("Close-up low angle view", p)
 
+    def test_full_names_and_blocks_unnamed(self):
+        board = {"look": "Film look.", "characters": [{"id": "VELA", "name": "Vela Marr",
+                                                       "desc": "a blue-skinned woman, platinum bob"}]}
+        shot = {"id": "SH01", "action": "Vela Marr smiles.", "characters": ["VELA"]}
+        p = fr.frame_prompt(board, shot, "photo", {"VELA": "Vela Marr exactly as in the reference images."})
+        self.assertNotIn("Vela", p)
+        self.assertNotIn("Marr", p)
+        self.assertIn("a blue-skinned woman smiles", p)
+        self.assertIn("Film look.", p)
+        self.assertNotIn("Film look.", fr.frame_prompt(board, {**shot, "look": ""}, "photo"))
+        self.assertNotIn("Marr", fr.end_prompt(board, shot, {"VELA": "Vela Marr exactly as in the reference images."}))
+        self.assertEqual(p.count("a blue-skinned woman"), 2)  # the action and the block, no "label: label" prefix
+        self.assertNotIn("Vela", fr.end_prompt(board, {**shot, "end_frame_prompt": "Vela Marr nods."}))
+        self.assertIn("camera position", fr.end_prompt(board, {**shot, "cam": {"move": "Locked off"}}))
+        self.assertNotIn("camera position", fr.end_prompt(board, {**shot, "cam": {"move": "Push-in"}}))
+        self.assertNotIn("Vela", fr.frame_prompt(board, {**shot, "start_frame_prompt": "Vela Marr nods."}, "photo"))
+
     def test_photo_prompt_bans_text_and_keeps_look(self):
         board = {"look": "Shot on 35mm film.", "characters": []}
         p = fr.frame_prompt(board, {"id": "SH01", "action": "An empty street at dawn."}, "photo")
@@ -189,6 +232,18 @@ class FrameTests(unittest.TestCase):
         g = fr.template_graph(t, "hello", 7, 640, 360, "pre")
         self.assertEqual(g["1"]["inputs"], {"text": "hello", "seed": 7, "w": 640})
         self.assertEqual(g["2"]["inputs"]["filename_prefix"], "pre")
+
+    def test_ref_graph_widens_qwen_edit_graph(self):
+        from storyboard import models as fm
+        t = fm.graph_template(fm.BUILTIN["qwen21"], "edit_graph")
+        g = fr.ref_graph(t, "p", 1, [f"img{i}.png" for i in range(5)], 1344, 768, "pre")
+        loads = sorted(n["inputs"]["image"] for n in g.values() if n["class_type"] == "LoadImage")
+        self.assertEqual(loads, [f"img{i}.png" for i in range(5)])
+        enc = next(n for n in g.values() if n["class_type"] == "TextEncodeQwenImage21")
+        self.assertEqual(sorted(k for k in enc["inputs"] if k.startswith("images.")),
+                         sorted(f"images.image_{i}" for i in range(1, 6)))
+        one = fr.ref_graph(t, "p", 1, ["a.png"], 1344, 768, "pre")
+        self.assertEqual([n["inputs"]["image"] for n in one.values() if n["class_type"] == "LoadImage"], ["a.png"])
 
     def test_frame_size_keeps_aspect(self):
         w, h = fr.frame_size({"width": 720, "height": 1280}, "sketch")

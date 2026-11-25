@@ -22,9 +22,17 @@ def _unname(text, board):
     # one pass per character, so a description that contains the name ("a prospector, ...") is not replaced again
     for c in board.get("characters", []):
         short = (c.get("desc") or "").split(",")[0].strip() or "a person"
-        names = "|".join(re.escape(n) for n in sorted({c["id"], c["id"].capitalize(), c["id"].lower()}, key=len, reverse=True))
+        # the full name first ("Vela Marr"), so its first word is not swapped on its own and the surname left over
+        full = {c["name"]} if isinstance(c.get("name"), str) and c["name"].strip() else set()
+        names = "|".join(re.escape(n) for n in sorted({c["id"], c["id"].capitalize(), c["id"].lower()} | full,
+                                                       key=len, reverse=True))
         text = re.sub(rf"\b(?:{names})\b", lambda m: short, text)
     return text
+
+
+def _labeled(label, text):
+    """"label: text", or just the text when it already starts with the label (no "a man: a man, ...")."""
+    return text if text.lower().startswith(label.lower()) else f"{label}: {text}"
 
 
 def frame_prompt(board, shot, style, blocks=None):
@@ -37,13 +45,13 @@ def frame_prompt(board, shot, style, blocks=None):
     `blocks` ({character id: text}, from character packs) replaces those characters' descriptions in photo frames.
     """
     if shot.get("start_frame_prompt"):
-        base = shot["start_frame_prompt"]
+        base = _unname(shot["start_frame_prompt"], board)
     else:
         ids = shot.get("characters", [])
         chars = [c for c in board.get("characters", []) if c["id"] in ids]
-        blocks = blocks if style != "sketch" else None
-        people = "; ".join(f"{(c.get('desc') or '').split(',')[0].strip() or 'a person'}: "
-                           f"{(blocks or {}).get(c['id']) or c.get('desc')}"
+        blocks = {k: _unname(v, board) for k, v in (blocks or {}).items()} if style != "sketch" else None
+        people = "; ".join(_labeled((c.get('desc') or '').split(',')[0].strip() or 'a person',
+                                    (blocks or {}).get(c['id']) or c.get('desc'))
                            for c in chars if (blocks or {}).get(c["id"]) or (c.get("desc") and "," in c["desc"]))
         cam = shot.get("cam") or {}
         framing = " ".join(x for x in (cam.get("size"), cam.get("angle") and cam["angle"].lower()) if x)
@@ -61,24 +69,31 @@ def frame_prompt(board, shot, style, blocks=None):
             base = (f"{framing} view. " if framing else "") + action + (f" ({people})" if people else "")
     if style == "sketch":
         return SKETCH + base + NO_TEXT
-    return f"{base} {board.get('look') or ''}".strip() + NO_TEXT
+    look = shot["look"] if isinstance(shot.get("look"), str) else board.get("look") or ""  # a shot's "" turns it off
+    return f"{base} {look}".strip() + NO_TEXT
 
 
 END_KEEP = ("Keep the same people, faces, hair, clothes, lighting, lens, camera position and setting as the first "
             "reference image; change only the pose, position and expression this moment needs.")
+END_KEEP_MOVING = ("Keep the same people, faces, hair, clothes, lighting, lens and setting as the first reference image; "
+                   "the camera has moved as described, and only that and the pose, position and expression this moment "
+                   "needs change.")
+STILL_MOVES = ("", "locked off", "handheld", "static")
 
 
 def end_prompt(board, shot, blocks=None):
     """Prompt for a shot's end frame, made as an edit of its start frame (the first reference image): the shot's own
     end_frame_prompt, else its last beat, else its action, as the moment at the end of the shot."""
     if shot.get("end_frame_prompt"):
-        moment = shot["end_frame_prompt"]
+        moment = _unname(shot["end_frame_prompt"], board)
     else:
         beats = shot.get("beats") or []
         moment = _unname((beats[-1].get("action") if beats else None) or shot.get("action") or "", board)
     ids = shot.get("characters", [])
-    who = "; ".join(f"{b}" for cid, b in (blocks or {}).items() if cid in ids)
-    return (f"The same shot a moment later, at the end of the shot: {moment}. {END_KEEP}"
+    who = "; ".join(_unname(b, board) for cid, b in (blocks or {}).items() if cid in ids)
+    move = ((shot.get("cam") or {}).get("move") or "").strip().lower()
+    keep = END_KEEP if move in STILL_MOVES else END_KEEP_MOVING
+    return (f"The same shot a moment later, at the end of the shot: {moment}. {keep}"
             + (f" ({who})" if who else "") + NO_TEXT)
 
 
@@ -134,12 +149,29 @@ def edit_graph(template, prompt, seed, images, prefix):
     return g
 
 
+MAX_REFS = 16  # TextEncodeQwenImage21 takes images.image_1 .. image_16
+
+
+def more_ref_slots(template, n):
+    """The edit graph with LoadImage slots {{image_1}}..{{image_n}}: the template has two; extra ones are wired into
+    the encoder that reads images.image_1 (Qwen-Image 2.1). Templates without such an encoder are returned as is."""
+    g = json.loads(json.dumps(template))
+    enc = next((k for k, v in g.items() if "images.image_1" in v.get("inputs", {})), None)
+    if not enc:
+        return g
+    for i in range(1, min(n, MAX_REFS) + 1):
+        if f"images.image_{i}" not in g[enc]["inputs"]:
+            g[f"ref{i}"] = {"class_type": "LoadImage", "inputs": {"image": f"{{{{image_{i}}}}}"}}
+            g[enc]["inputs"][f"images.image_{i}"] = [f"ref{i}", 0]
+    return g
+
+
 def ref_graph(template, prompt, seed, images, width, height, prefix):
-    """A new frame from reference images (character packs): the edit graph, with its empty latent set to the frame
-    size instead of the edit default (the size of the first reference image). In the Qwen-Image 2.1 edit graph a
-    ComfySwitchNode picks the latent: on_false = the encoder's latent at the reference's size, on_true = the empty
-    latent; it is switched to the empty latent here."""
-    g = edit_graph(template, prompt, seed, images, prefix)
+    """A new frame from reference images (character packs, set and prop refs): the edit graph, with its empty latent
+    set to the frame size instead of the edit default (the size of the first reference image). In the Qwen-Image 2.1
+    edit graph a ComfySwitchNode picks the latent: on_false = the encoder's latent at the reference's size, on_true =
+    the empty latent; it is switched to the empty latent here."""
+    g = edit_graph(more_ref_slots(template, len(images)), prompt, seed, images, prefix)
     empties = set()
     for k, n in g.items():
         if n.get("class_type", "").startswith("Empty") and "Latent" in n["class_type"]:

@@ -35,17 +35,20 @@ terminal. The board reloads by itself when the file changes, so your edits show 
 Board: `title`, `kind` (`story` | `music`), `width`, `height`, `fps`, `frame_style` (`sketch` | `photo`), `brief`
 (director's notes), `request`, `look` (appended to photo frame prompts: film stock, light, palette), `notes`,
 `audio` (`{file, offset, bpm, first_beat}`, optional board track), `sections` (`[{name, in, out}]`, music),
-`characters` (`[{id, desc, block, voice_id, pack}]`: `block` is the full character block for final frames,
+`characters` (`[{id, name, desc, block, voice_id, pack}]`: `name` is the full name as written in actions ("Vela Marr"), swapped for the description's first part in frame prompts; keep names out of `desc`; `block` is the full character block for final frames,
 `pack` a character pack folder name in `STORYBOARD_PACKS`, default `<root>/input/characters`; see `storyboard/packs.py`:
 photo frames of a packed character use its prompt block and headshot + outfit as references, on Qwen-Image 2.1 or GPT;
-a shot's `outfit` picks a wardrobe entry), `shots`.
+a shot's `outfit` picks a wardrobe entry for every character whose pack has it; a character's own `outfit` is its
+default on this board, e.g. a sweater for the whole episode), `shots`.
 
 Shot: `id`, `duration` (seconds; order = array order, start times are derived), `section` (scene), `location`,
 `action` (what happens), `dialogue` + `speaker` (a character id) or `lyric`, `audio` (path), `cam`
 (`{size, angle, move, lens, extra}`) and `camera` (the same as text: `size, angle, lens, move, extra`),
-`characters` (ids), `start_frame`, `end_frame` (paths), `start_frame_prompt`, `end_frame_prompt`, `motion_prompt`,
+`characters` (ids), `start_frame`, `end_frame` (paths), `start_frame_prompt`, `end_frame_prompt`, `motion_prompt`, `look` (overrides the board look for this shot, "" turns it off),
 `backend`, `seeds`, `notes`, `request`, `status` (`draft` → `frames` → `approved` → `rendered` → `picked`),
-`takes` (`[{path, label}]`), `pick`.
+`takes` (`[{path, label}]`), `pick`, `refs` (`[{path, note}]`: set, prop or logo reference images for photo frames,
+added after the character refs with their note, e.g. `{"path": "input/.../lounge.png", "note": "the room, furniture and
+the window with Saturn's rings, same as in this image"}`; local Qwen-Image 2.1 takes up to 6 references, GPT 8; `--no-packs` drops them).
 
 Production fields (read by the renderer from the exported `shot.json`):
 - `lane`: `A` dialogue, `B` character in a moving world, `C` cinematic / movement, `D` photo to video, `E` music video

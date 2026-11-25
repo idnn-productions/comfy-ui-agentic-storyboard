@@ -48,7 +48,8 @@ class PackTests(unittest.TestCase):
         shot = {"id": "S1", "action": "VELA talks to camera", "characters": ["VELA"]}
         self.assertEqual([c["id"] for c, _ in pk.shot_packs(self.cfg, board, shot)], ["VELA"])
         photo = fr.frame_prompt(board, shot, "photo", {"VELA": "VELA BLOCK"})
-        self.assertIn("a reporter: VELA BLOCK", photo)
+        self.assertIn("(a reporter BLOCK)", photo)  # names in the block are swapped too, no repeated label
+        self.assertNotIn("VELA", photo)
         self.assertNotIn("blue skin", photo)
         self.assertIn("blue skin", fr.frame_prompt(board, shot, "sketch", {"VELA": "VELA BLOCK"}))
 
