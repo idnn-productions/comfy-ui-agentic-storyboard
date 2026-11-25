@@ -39,7 +39,9 @@ Board: `title`, `kind` (`story` | `music`), `width`, `height`, `fps`, `frame_sty
 `pack` a character pack folder name in `STORYBOARD_PACKS`, default `<root>/input/characters`; see `storyboard/packs.py`:
 photo frames of a packed character use its prompt block and headshot + outfit as references, on Qwen-Image 2.1 or GPT;
 a shot's `outfit` picks a wardrobe entry for every character whose pack has it; a character's own `outfit` is its
-default on this board, e.g. a sweater for the whole episode), `shots`.
+default on this board, e.g. a sweater for the whole episode; `traits` is what a model keeps getting wrong and must
+never change, e.g. "pale green-grey eyes, not brown": it goes on every photo frame prompt of a shot with that
+character, own start/end prompts included, and falls back to the pack's `traits`), `shots`.
 
 Shot: `id`, `duration` (seconds; order = array order, start times are derived), `section` (scene), `location`,
 `action` (what happens), `dialogue` + `speaker` (a character id) or `lyric`, `audio` (path), `cam`

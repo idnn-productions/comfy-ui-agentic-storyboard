@@ -107,6 +107,9 @@ def cmd_frames(cfg, a):
         todo = [s for s in todo if s.get("start_frame")]
     reg = fm.registry()
     packed = {s["id"]: pk.shot_packs(cfg, b, s) for s in todo} if style != "sketch" and not a.no_packs else {}
+    for c, p in (cp for ps in packed.values() for cp in ps):
+        if isinstance(p.get("traits"), str) and not c.get("traits"):
+            c["traits"] = p["traits"]  # the pack's locked traits, unless the board sets its own (frames.traits_line)
     picks = {}
     if not template:
         for s in todo:

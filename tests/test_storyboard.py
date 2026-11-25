@@ -220,6 +220,18 @@ class FrameTests(unittest.TestCase):
         self.assertNotIn("camera position", fr.end_prompt(board, {**shot, "cam": {"move": "Push-in"}}))
         self.assertNotIn("Vela", fr.frame_prompt(board, {**shot, "start_frame_prompt": "Vela Marr nods."}, "photo"))
 
+    def test_locked_traits_on_every_photo_prompt(self):
+        board = {"characters": [{"id": "VELA", "name": "Vela Marr", "desc": "a blue-skinned woman, platinum bob",
+                                 "traits": "pale green-grey eyes, not brown"},
+                                {"id": "THESSK", "desc": "a green amphibian alien, heavyset"}]}
+        shot = {"id": "SH02", "action": "Vela Marr smiles.", "characters": ["VELA"]}
+        want = "Always: a blue-skinned woman: pale green-grey eyes, not brown."
+        self.assertIn(want, fr.frame_prompt(board, shot, "photo"))
+        self.assertIn(want, fr.frame_prompt(board, {**shot, "start_frame_prompt": "She nods."}, "photo"))
+        self.assertIn(want, fr.end_prompt(board, shot))
+        self.assertNotIn("Always:", fr.frame_prompt(board, shot, "sketch"))
+        self.assertNotIn("Always:", fr.frame_prompt(board, {**shot, "characters": ["THESSK"]}, "photo"))
+
     def test_photo_prompt_bans_text_and_keeps_look(self):
         board = {"look": "Shot on 35mm film.", "characters": []}
         p = fr.frame_prompt(board, {"id": "SH01", "action": "An empty street at dawn."}, "photo")

@@ -3,7 +3,7 @@
 A board character names its pack (`"pack": "vela_marr"`); packs live in STORYBOARD_PACKS, default <root>/input/characters.
 pack.json keys used here (all paths relative to the pack folder; every key is optional):
 
-  display_name, voice_id, prompt_block (a .txt file), master_headshot,
+  display_name, voice_id, prompt_block (a .txt file), traits (locked traits, see frames.traits_line), master_headshot,
   body_turnaround / head_turnaround  {front, three_quarter, profile, three_quarter_back, back},
   expressions {name: file}, mouth_shapes {AH, OO, EE, FV, MBP}, details {name: file}, wardrobe {name: file}
 

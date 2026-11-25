@@ -30,6 +30,19 @@ def _unname(text, board):
     return text
 
 
+def traits_line(board, shot):
+    """Locked character traits for the characters in this shot, as one sentence ("" when none).
+
+    A character's `traits` holds what a model keeps getting wrong and must never change (Vela's eyes came out brown on
+    SH02 and again on a thumbnail: "pale green-grey eyes, not brown"). It is added to every photo frame prompt of a shot
+    that lists the character, including shots with their own start/end frame prompt, so no path can drop it."""
+    ids = shot.get("characters", [])
+    parts = [_labeled((c.get("desc") or "").split(",")[0].strip() or "a person", c["traits"].strip())
+             for c in board.get("characters", [])
+             if c["id"] in ids and isinstance(c.get("traits"), str) and c["traits"].strip()]
+    return f" Always: {'; '.join(parts)}." if parts else ""
+
+
 def _labeled(label, text):
     """"label: text", or just the text when it already starts with the label (no "a man: a man, ...")."""
     return text if text.lower().startswith(label.lower()) else f"{label}: {text}"
@@ -70,7 +83,7 @@ def frame_prompt(board, shot, style, blocks=None):
     if style == "sketch":
         return SKETCH + base + NO_TEXT
     look = shot["look"] if isinstance(shot.get("look"), str) else board.get("look") or ""  # a shot's "" turns it off
-    return f"{base} {look}".strip() + NO_TEXT
+    return f"{base}{traits_line(board, shot)} {look}".strip() + NO_TEXT
 
 
 END_KEEP = ("Keep the same people, faces, hair, clothes, lighting, lens, camera position and setting as the first "
@@ -94,7 +107,7 @@ def end_prompt(board, shot, blocks=None):
     move = ((shot.get("cam") or {}).get("move") or "").strip().lower()
     keep = END_KEEP if move in STILL_MOVES else END_KEEP_MOVING
     return (f"The same shot a moment later, at the end of the shot: {moment}. {keep}"
-            + (f" ({who})" if who else "") + NO_TEXT)
+            + (f" ({who})" if who else "") + traits_line(board, shot) + NO_TEXT)
 
 
 def frame_size(board, style):
